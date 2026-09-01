@@ -1,0 +1,65 @@
+name: Build Windows executable
+
+on:
+  push:
+    branches:
+      - claude/new-session-wz5ncu
+      - main
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run test suite
+        run: pytest -v
+
+      - name: Download pose model weights
+        run: |
+          python -c "from ultralytics import YOLO; YOLO('yolo11n-pose.pt')"
+          Get-ChildItem -Recurse -Filter "yolo11n-pose.pt" | Select-Object -First 1 | ForEach-Object { Copy-Item $_.FullName -Destination (Join-Path $PWD.Path "yolo11n-pose.pt") -Force }
+
+      - name: Build frozen executable
+        run: python scripts/build_windows.py
+
+      - name: Smoke test the frozen executable
+        run: |
+          $exe = Join-Path $PWD.Path "dist\GaitAnalysis\GaitAnalysis.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Error "Frozen executable not found at $exe"
+            exit 1
+          }
+          # A --windowed (GUI-subsystem) exe launched via a bare `&` call in
+          # PowerShell does not reliably block until the process exits and
+          # can return with a stale $LASTEXITCODE -- Start-Process -Wait
+          # -PassThru is required to get the real exit code here.
+          $proc = Start-Process -FilePath $exe -ArgumentList "--smoke-test" -Wait -PassThru -NoNewWindow
+          if ($proc.ExitCode -ne 0) {
+            Write-Error "Smoke test failed with exit code $($proc.ExitCode)"
+            exit 1
+          }
+          Write-Host "Smoke test passed."
+
+      - name: Package release zip
+        run: Compress-Archive -Path "dist\GaitAnalysis\*" -DestinationPath "GaitAnalysis-windows.zip" -Force
+
+      - name: Publish rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete windows-build-latest --yes --cleanup-tag 2>$null
+          gh release create windows-build-latest GaitAnalysis-windows.zip `
+            --title "Windows build (latest)" `
+            --notes "Automated build from commit $env:GITHUB_SHA. This release is replaced on every successful build." `
+            --target $env:GITHUB_SHA
