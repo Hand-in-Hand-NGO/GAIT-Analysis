@@ -27,8 +27,17 @@ jobs:
 
       - name: Download pose model weights
         run: |
+          # ultralytics resolves a bare model name relative to the current
+          # working directory and downloads it there directly if missing --
+          # it lands at repo root already, no copy needed. (An earlier
+          # version of this step tried to Get-ChildItem + Copy-Item it into
+          # place anyway, which failed with "Cannot overwrite the item ...
+          # with itself" once it found the very file it had just downloaded.)
           python -c "from ultralytics import YOLO; YOLO('yolo11n-pose.pt')"
-          Get-ChildItem -Recurse -Filter "yolo11n-pose.pt" | Select-Object -First 1 | ForEach-Object { Copy-Item $_.FullName -Destination (Join-Path $PWD.Path "yolo11n-pose.pt") -Force }
+          if (-not (Test-Path "yolo11n-pose.pt")) {
+            Write-Error "yolo11n-pose.pt was not found in the working directory after download"
+            exit 1
+          }
 
       - name: Build frozen executable
         run: python scripts/build_windows.py
