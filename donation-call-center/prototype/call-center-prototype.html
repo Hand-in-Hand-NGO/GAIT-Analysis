@@ -174,6 +174,7 @@ tfoot td { background: var(--surface-2); border-top: 1px solid var(--line-strong
 .pbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
 .gate .empty { padding: 48px 16px; gap: 10px; } .gate .big { font-size: 40px; color: var(--fg); } .gate.over { border-color: var(--bad); }
 .sched td { padding: 8px 10px; } .sched select { height: 32px; }
+.chip-btn { display: inline-flex; align-items: center; gap: 5px; } .chip-btn svg { width: 14px; height: 14px; }
 .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 4px; background: var(--neutral-soft); color: var(--fg-2); }
 
 /* meters */
@@ -338,6 +339,7 @@ const I = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   share: '<path d="M4 12h12M12 6l6 6-6 6"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   download: '<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>',
   heart: '<path d="M12 20s-7-4.4-9-9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c-2 4.6-9 9-9 9z"/>',
 };
@@ -1523,8 +1525,19 @@ function callCard(d, cat, left) {
   const firstGood = d.phones.findIndex((p) => !p.bad);
   const f = S.ui.form && S.ui.form.id === d.id ? S.ui.form : (S.ui.form = { id: d.id, outcome: null, phone: firstGood, amount: d.status === "pledged" ? d.pledge : "", pay: PAYMENTS[0], follow: "", notes: "" });
   const o = f.outcome ? OC[f.outcome] : null;
-  const followOpts = [["2h", "بعد ساعتين"], ["eve", "النهارده بالليل"], ["tom", "بكرة الصبح"], ["2d", "بعد يومين"], ["wk", "بعد أسبوع"]];
-  const followAt = (k) => ({ "2h": S.now + 2 * H, eve: Math.max(dayStart(S.now) + 19 * H, S.now + H), tom: dayStart(S.now) + D + 11 * H, "2d": dayStart(S.now) + 2 * D + 11 * H, wk: dayStart(S.now) + 7 * D + 11 * H }[k]);
+  const isPledge = o?.code === "pledged";
+  const followOpts = isPledge ? [["1d", "بعد يوم"], ["2d", "بعد يومين"], ["wk", "بعد أسبوع"], ["pick", "اختار يوم"]]
+    : [["2h", "بعد ساعتين"], ["eve", "النهارده بالليل"], ["tom", "بكرة الصبح"], ["2d", "بعد يومين"], ["wk", "بعد أسبوع"]];
+  const isoDay = (t) => { const x = new Date(t), z = (v) => String(v).padStart(2, "0"); return `${x.getFullYear()}-${z(x.getMonth() + 1)}-${z(x.getDate())}`; };
+  const workStart = (day) => day + S.settings.dayStart * H;   // pledges are due at the start of that working day
+  const followAt = (k) => {
+    const d0 = dayStart(S.now);
+    if (isPledge) {
+      if (k === "pick") return f.pickDate ? workStart(dayStart(new Date(f.pickDate + "T00:00").getTime())) : null;
+      return workStart(d0 + { "1d": 1, "2d": 2, wk: 7 }[k] * D);
+    }
+    return { "2h": S.now + 2 * H, eve: Math.max(d0 + 19 * H, S.now + H), tom: d0 + D + 11 * H, "2d": d0 + 2 * D + 11 * H, wk: d0 + 7 * D + 11 * H }[k];
+  };
   const lastCall = S.calls.filter((c) => c.donor === d.id).sort((a, b) => b.t - a.t)[0];
   const box = $("#callCard");
   box.innerHTML = `<div class="card-b">
@@ -1542,7 +1555,9 @@ function callCard(d, cat, left) {
       ${o.code === "donated" ? `<label class="field"><span>طريقة الدفع</span><select class="input" id="pay">${PAYMENTS.map((p) => `<option ${p === f.pay ? "selected" : ""}>${p}</option>`).join("")}</select></label>` : ""}
     </div>` : ""}
     ${o.follow ? `<div class="field"><span class="${o.follow === "req" ? "req" : ""}">${o.code === "pledged" ? "معاد التحصيل" : o.group === "none" ? "تتصل تاني إمتى؟ (اختياري)" : "معاد المتابعة"}</span>
-      <div class="chips" role="group">${followOpts.map(([k, l]) => `<button type="button" class="chip-btn" data-fu="${k}" aria-pressed="${f.follow === k}">${l}</button>`).join("")}</div>
+      <div class="chips" role="group">${followOpts.map(([k, l]) => `<button type="button" class="chip-btn" data-fu="${k}" aria-pressed="${f.follow === k}">${k === "pick" ? ic("cal") : ""}${l}</button>`).join("")}</div>
+      ${isPledge && f.follow === "pick" ? `<input class="input" type="date" id="pickDay" min="${isoDay(S.now + D)}" max="${isoDay(S.now + 120 * D)}" value="${esc(f.pickDate || "")}" aria-label="يوم التحصيل" style="max-width:200px">` : ""}
+      ${isPledge && f.follow && followAt(f.follow) ? `<span class="small">معاد التحصيل: <b>${new Date(followAt(f.follow)).toLocaleDateString("ar-EG", { weekday: "long", day: "numeric", month: "long" })}</b></span>` : ""}
       <span class="hint" id="fuErr" role="alert">${o.group === "none" ? `لو مختارتش، هيرجعلك في «شغل الشيت» ${when(nextRetry(S.now, S.settings.retry[o.code], S.calls.filter((c) => c.donor === d.id && c.t >= dayStart(S.now) && OC[c.outcome].group === "none").length + 1))}. بعد ${n(S.settings.maxTries)} مرات ورا بعض من غير رد بيتقفل.` : ""}</span></div>` : ""}
     ${o.group === "num" ? `<p class="note warn">الرقم ده هيتعلّم إنه غير صالح.${goodPhones(d).length > 1 ? " المتبرع هيرجعلك في «شغل الشيت» على رقمه التاني." : " ده آخر رقم صالح، فالمتبرع هيتقفل."}</p>` : ""}
     ${o.code === "donated" && d.kind === "prospect" ? `<p class="note">ده متبرع محتمل. بعد الحفظ هيتنقل لقاعدة المتبرعين.</p>` : ""}` : ""}
@@ -1555,7 +1570,8 @@ function callCard(d, cat, left) {
     <span class="muted small">${o ? "" : "اختار نتيجة المكالمة الأول"}</span></div>`;
   const keep = () => { f.notes = $("#notes").value; if ($("#amt")) f.amount = $("#amt").value; if ($("#pay")) f.pay = $("#pay").value; const ph = $('input[name="ph"]:checked'); if (ph) f.phone = Number(ph.value); };
   const redraw = () => callCard(d, cat, left);
-  $$("[data-oc]", box).forEach((b) => (b.onclick = () => { keep(); f.outcome = b.dataset.oc; f.follow = OC[f.outcome].follow === "req" ? "tom" : ""; redraw(); }));
+  $$("[data-oc]", box).forEach((b) => (b.onclick = () => { keep(); f.outcome = b.dataset.oc; f.follow = f.outcome === "pledged" ? "" : OC[f.outcome].follow === "req" ? "tom" : ""; redraw(); }));
+  const pd = $("#pickDay", box); if (pd) pd.onchange = () => { keep(); f.pickDate = pd.value; redraw(); };
   $$("[data-fu]", box).forEach((b) => (b.onclick = () => { keep(); f.follow = f.follow === b.dataset.fu && OC[f.outcome].follow !== "req" ? "" : b.dataset.fu; redraw(); }));
   $$('input[name="ph"]', box).forEach((r) => (r.onchange = keep));
   $$("[data-cp]", box).forEach((b) => (b.onclick = () => { if (navigator.clipboard?.writeText) navigator.clipboard.writeText(b.dataset.cp).then(() => toast("اتنسخ الرقم"), () => {}); }));
@@ -1566,7 +1582,8 @@ function callCard(d, cat, left) {
   $("#saveNext").onclick = () => {
     keep();
     if (o.amount && !(Number(f.amount) > 0)) { $("#amtErr").textContent = "اكتب المبلغ"; $("#amt").focus(); return; }
-    if (o.follow === "req" && !f.follow) { $("#fuErr").textContent = "اختار المعاد"; return; }
+    if (o.follow === "req" && !f.follow) { $("#fuErr").textContent = isPledge ? "اختار معاد التحصيل" : "اختار المعاد"; return; }
+    if (isPledge && f.follow === "pick" && !(f.pickDate && followAt("pick") > S.now)) { $("#fuErr").textContent = "اختار يوم من الكالندر (من بكرة وطالع)"; return; }
     const conv = logCall(d, S.role, { outcome: o.code, phone: f.phone, amount: o.amount ? Number(f.amount) : null, pay: o.code === "donated" ? f.pay : null, follow: f.follow ? followAt(f.follow) : null, notes: f.notes });
     S.calls[S.calls.length - 1].cat = cat;
     S.now += 3 * MIN;
