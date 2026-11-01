@@ -1,0 +1,691 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>محاكي كول سنتر التبرعات</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: sticky control bar (role + simulated clock) over tabbed work area; chips encode call outcomes. */
+:root {
+  --bg: #f4f6f5; --surface: #ffffff; --surface-2: #eef2f0; --line: #d9e1dd;
+  --fg: #17242a; --muted: #5d6d71; --accent: #0e6e63; --accent-ink: #ffffff; --accent-soft: #dcefeb;
+  --ok: #1f8a4c; --ok-soft: #dff3e6; --warn: #a86400; --warn-soft: #fbefd9;
+  --bad: #b3261e; --bad-soft: #f9e0de; --info: #2b5fa8; --info-soft: #e0eafa; --grey-soft: #e7ebea;
+  --font: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif; --radius: 8px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1719; --surface: #162124; --surface-2: #1c2a2e; --line: #2a3a3e; --fg: #e5eeec; --muted: #94a7a6;
+  --accent: #3fb3a1; --accent-ink: #062320; --accent-soft: #173a36; --ok: #5ccf8a; --ok-soft: #173826;
+  --warn: #f0b153; --warn-soft: #3a2c13; --bad: #f08a80; --bad-soft: #3d1c1a; --info: #8db4f0; --info-soft: #1a2a45; --grey-soft: #253235;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f1719; --surface: #162124; --surface-2: #1c2a2e; --line: #2a3a3e; --fg: #e5eeec; --muted: #94a7a6;
+  --accent: #3fb3a1; --accent-ink: #062320; --accent-soft: #173a36; --ok: #5ccf8a; --ok-soft: #173826;
+  --warn: #f0b153; --warn-soft: #3a2c13; --bad: #f08a80; --bad-soft: #3d1c1a; --info: #8db4f0; --info-soft: #1a2a45; --grey-soft: #253235;
+  color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.55 var(--font); direction: rtl; }
+h1, h2, h3 { margin: 0; text-wrap: balance; line-height: 1.3; }
+h1 { font-size: 21px; } h2 { font-size: 16px; } h3 { font-size: 14.5px; }
+p { margin: 0; }
+button, input, select, textarea { font: inherit; color: inherit; }
+.muted { color: var(--muted); }
+.num { font-variant-numeric: tabular-nums; }
+.wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+.bar-top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+.bar-top .wrap { padding-block: 10px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.brand { display: flex; flex-direction: column; margin-inline-end: auto; }
+.brand b { font-size: 15.5px; } .brand small { color: var(--muted); font-size: 12px; }
+.seg { display: flex; flex-wrap: wrap; gap: 4px; background: var(--surface-2); padding: 3px; border-radius: 10px; }
+.seg button { border: 0; background: transparent; padding: 5px 11px; border-radius: 7px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--accent); font-weight: 600; box-shadow: 0 1px 2px rgb(0 0 0 / .12); }
+.clock { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.clock b { font-variant-numeric: tabular-nums; }
+.tabs { display: flex; gap: 2px; overflow-x: auto; }
+.tabs button { border: 0; background: none; padding: 10px 12px; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; color: var(--muted); }
+.tabs button[aria-selected="true"] { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+main.wrap { padding-block: 18px 40px; display: flex; flex-direction: column; gap: 16px; max-width: 1400px; margin: 0 auto; }
+.head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.btn { border: 1px solid var(--line); background: var(--surface); padding: 6px 13px; border-radius: var(--radius); cursor: pointer; }
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.btn.small { padding: 2px 9px; font-size: 13px; }
+.btn.danger { color: var(--bad); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+:is(.btn, input, select, textarea, .seg button, .tabs button, .outcomes button):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input, select, textarea { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 9px; min-width: 0; }
+label.field { display: flex; flex-direction: column; gap: 3px; font-size: 12.5px; color: var(--muted); }
+label.field > :is(input, select, textarea) { color: var(--fg); font-size: 14px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 11px 13px; display: flex; flex-direction: column; gap: 2px; }
+.kpi span { color: var(--muted); font-size: 12.5px; }
+.kpi b { font-size: 21px; font-variant-numeric: tabular-nums; }
+.kpi small { color: var(--muted); }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: 14px; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); max-height: 520px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 7px 10px; text-align: start; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { background: var(--surface-2); font-weight: 600; font-size: 12.5px; color: var(--muted); position: sticky; top: 0; z-index: 1; }
+td.num, th.num { text-align: end; font-variant-numeric: tabular-nums; }
+tbody tr:hover { background: var(--surface-2); }
+tr:last-child td { border-bottom: 0; }
+.chip { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12.5px; background: var(--grey-soft); color: var(--fg); white-space: nowrap; }
+.chip.success { background: var(--ok-soft); color: var(--ok); font-weight: 600; }
+.chip.positive { background: var(--accent-soft); color: var(--accent); }
+.chip.pending { background: var(--info-soft); color: var(--info); }
+.chip.unreachable { background: var(--warn-soft); color: var(--warn); }
+.chip.negative, .chip.invalid { background: var(--bad-soft); color: var(--bad); }
+.chip.overdue { background: var(--bad); color: var(--surface); }
+.bars { display: flex; flex-direction: column; gap: 6px; }
+.hbar { display: grid; grid-template-columns: minmax(110px, 190px) 1fr 52px; gap: 8px; align-items: center; font-size: 13px; }
+.track { height: 10px; background: var(--surface-2); border-radius: 5px; overflow: hidden; }
+.fill { height: 100%; background: var(--accent); border-radius: 5px; }
+.fill.success { background: var(--ok); } .fill.unreachable { background: var(--warn); } .fill.pending { background: var(--info); }
+.fill.negative, .fill.invalid { background: var(--bad); }
+.cols-chart { display: flex; align-items: end; gap: 4px; height: 130px; border-bottom: 1px solid var(--line); margin: 22px 0 20px; }
+.cols-chart div { flex: 1; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 2px; position: relative; }
+.cols-chart div span { position: absolute; bottom: -19px; inset-inline: 0; text-align: center; font-size: 10.5px; color: var(--muted); }
+.cols-chart div em { position: absolute; top: -17px; inset-inline: 0; text-align: center; font-size: 10.5px; font-style: normal; color: var(--muted); }
+.progress { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; min-width: 70px; }
+.progress i { display: block; height: 100%; background: var(--accent); }
+.outcomes { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 7px; }
+.outcomes button { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); padding: 8px; cursor: pointer; text-align: start; }
+.outcomes button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.history { display: flex; flex-direction: column; font-size: 13px; }
+.history div { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.overlay { position: fixed; inset: 0; background: rgb(0 0 0 / .45); z-index: 20; display: grid; place-items: center; padding: 16px; }
+.modal { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; width: min(760px, 100%); max-height: 90vh; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.log { font-size: 13px; display: flex; flex-direction: column; max-height: 360px; overflow: auto; }
+.log div { padding: 5px 0; border-bottom: 1px dashed var(--line); display: flex; gap: 8px; }
+.log time { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+.empty { padding: 24px; text-align: center; color: var(--muted); }
+.note { background: var(--info-soft); color: var(--info); padding: 8px 12px; border-radius: var(--radius); font-size: 13px; }
+.flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; counter-reset: s; }
+.flow .step { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--surface); display: flex; flex-direction: column; gap: 4px; }
+.flow .step b::before { counter-increment: s; content: counter(s) ". "; color: var(--accent); }
+.legend { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 6px 14px; font-size: 13px; }
+.legend div { display: flex; gap: 8px; align-items: baseline; }
+.toast { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); background: var(--fg); color: var(--bg); padding: 9px 15px; border-radius: var(--radius); z-index: 30; max-width: calc(100vw - 32px); }
+pre.mermaid { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; overflow-x: auto; direction: ltr; }
+@media (max-width: 600px) { .hbar { grid-template-columns: 105px 1fr 44px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>window.mermaid && mermaid.initialize({ startOnLoad: false });</script>
+</head>
+<body>
+
+<header class="bar-top">
+  <div class="wrap">
+    <div class="brand"><b>محاكي كول سنتر التبرعات</b><small>بيانات تجريبية — جرّب الورك فلو بدون سيرفر</small></div>
+    <div class="seg" id="roleSeg" role="group" aria-label="تشغيل بصفة"></div>
+    <div class="clock"><span class="muted">الوقت المحاكى:</span><b id="clock"></b>
+      <button class="btn small" id="plus1h">+ ساعة</button><button class="btn small" id="plus1d">+ يوم</button>
+      <button class="btn small" id="simDay">محاكاة يوم عمل</button><button class="btn small danger" id="reset">إعادة البيانات</button></div>
+  </div>
+  <div class="wrap"><nav class="tabs" id="tabs" role="tablist"></nav></div>
+</header>
+<main class="wrap" id="main"></main>
+<div id="modalRoot"></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+"use strict";
+/* ============ outcome catalog (same rules as backend/app/outcomes.py) ============ */
+const OUTCOMES = [
+  { code: "donated", label: "اتبرع", cat: "success", final: true, amount: true },
+  { code: "pledged", label: "وعد بالتبرع (هيتبرع)", cat: "positive", amount: true, follow: true },
+  { code: "interested", label: "عنده نية / مهتم", cat: "positive" },
+  { code: "callback", label: "طلب معاودة الاتصال", cat: "pending", follow: true },
+  { code: "send_info", label: "طلب تفاصيل (واتساب / رسالة)", cat: "pending" },
+  { code: "no_answer", label: "لا يرد", cat: "unreachable", unreached: true, retry: 4 },
+  { code: "busy", label: "مشغول", cat: "unreachable", unreached: true, retry: 2 },
+  { code: "phone_off", label: "الموبايل مغلق", cat: "unreachable", unreached: true, retry: 6 },
+  { code: "not_interested", label: "معندوش نية للتبرع", cat: "negative", final: true },
+  { code: "donated_elsewhere", label: "اتبرع لجهة أخرى / مؤخراً", cat: "negative", final: true },
+  { code: "do_not_call", label: "طلب عدم الاتصال مرة أخرى", cat: "negative", final: true },
+  { code: "complaint", label: "شكوى / يحتاج مراجعة المدير", cat: "pending" },
+  { code: "wrong_number", label: "رقم خطأ / شخص آخر", cat: "invalid", final: true, unreached: true },
+  { code: "not_in_service", label: "الرقم غير موجود بالخدمة", cat: "invalid", final: true, unreached: true },
+];
+const OC = Object.fromEntries(OUTCOMES.map((o) => [o.code, o]));
+const EXTRA = { new: "جديد (لم يتم الاتصال)", exhausted: "استنفد المحاولات" };
+const MAX_UNREACH = 5;
+const FINAL = new Set([...OUTCOMES.filter((o) => o.final).map((o) => o.code), "exhausted"]);
+const H = 3600e3, D = 24 * H;
+
+/* ============ helpers ============ */
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const int = (n) => (Number(n) || 0).toLocaleString("ar-EG");
+const money = (n) => int(Math.round(n || 0)) + " ج.م";
+const pct = (a, b) => (b ? Math.round((1000 * a) / b) / 10 : 0);
+const pctS = (n) => (Number(n) || 0).toLocaleString("ar-EG", { maximumFractionDigits: 1 }) + "٪";
+const fmt = (t) => (t ? new Date(t).toLocaleString("ar-EG", { weekday: "short", day: "numeric", month: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
+const dayStart = (t) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+const label = (code) => (OC[code] ? OC[code].label : EXTRA[code] || code);
+const chip = (code, cls = "") => `<span class="chip ${OC[code] ? OC[code].cat : ""} ${cls}">${esc(label(code))}</span>`;
+function toast(m) { const t = $("#toast"); t.textContent = m; t.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (t.hidden = true), 2800); }
+function rng(seed) { return () => ((seed = (seed * 16807) % 2147483647) / 2147483647); }
+
+/* ============ state ============ */
+let S;
+const FIRST = ["أحمد", "محمد", "محمود", "مصطفى", "سارة", "منى", "هبة", "علي", "يوسف", "نورا", "خالد", "إيمان", "عمرو", "دينا", "طارق", "ريم", "حسن", "ياسمين", "كريم", "مريم"];
+const LAST = ["عبد الله", "السيد", "حسين", "إبراهيم", "فؤاد", "سالم", "الشريف", "منصور", "رشدي", "عثمان"];
+const CITIES = ["القاهرة", "الجيزة", "الإسكندرية", "المنصورة", "طنطا"];
+const SOURCES = ["حملة رمضان", "متبرعين سابقين", "فيسبوك", "زكاة المال"];
+const WEIGHTS = { donated: 12, pledged: 8, interested: 8, callback: 8, send_info: 4, no_answer: 22, busy: 6, phone_off: 12, not_interested: 12, donated_elsewhere: 2, do_not_call: 1, complaint: 1, wrong_number: 3, not_in_service: 2 };
+
+function fresh() {
+  const r = rng(42);
+  const pick = (a) => a[Math.floor(r() * a.length)];
+  const now = new Date(); now.setHours(11, 0, 0, 0);
+  S = {
+    now: now.getTime(), role: "manager", tab: "workflow", r,
+    agents: [
+      { id: 1, name: "سارة علي", target: 40, active: true }, { id: 2, name: "محمد حسن", target: 40, active: true },
+      { id: 3, name: "منى إبراهيم", target: 40, active: true }, { id: 4, name: "يوسف خالد", target: 40, active: true },
+    ],
+    donors: [], calls: [], assignLog: [], events: [], nextCallId: 1,
+  };
+  for (let i = 1; i <= 160; i++) {
+    S.donors.push({ id: i, name: `${pick(FIRST)} ${pick(LAST)}`, phone: "010" + String(10000000 + Math.floor(r() * 89999999)),
+      city: pick(CITIES), source: pick(SOURCES), last: pick([null, 100, 200, 500, 1000]),
+      agent: null, status: "new", attempts: 0, streak: 0, next: null, pledge: null, pledgeDue: null, total: 0, dnc: false });
+  }
+  // history: the first 100 donors were distributed 3 days ago and worked on
+  const start = S.now - 3 * D;
+  const save = S.now; S.now = start;
+  distribute([1, 2, 3, 4], "balanced", { limit: 100 }, true);
+  for (let day = 0; day < 3; day++) {
+    S.now = start + day * D;
+    simulateDay(0.75, true);
+  }
+  S.now = save; S.events = [];
+  ev("تم تحميل بيانات تجريبية: ١٦٠ متبرع، ٤ ايجنتس، و٣ أيام من المكالمات السابقة.");
+}
+
+function ev(msg) { S.events.unshift({ t: S.now, msg }); if (S.events.length > 200) S.events.pop(); }
+const agentName = (id) => S.agents.find((a) => a.id === id)?.name || "غير موزع";
+
+/* ============ business rules ============ */
+function logCall(donor, agentId, data, silent) {
+  const o = OC[data.outcome];
+  if (o.code === "donated" && !data.amount) throw new Error("اكتب مبلغ التبرع");
+  if (o.follow && !data.follow) throw new Error("حدد موعد المتابعة");
+  const call = { id: S.nextCallId++, donor: donor.id, agent: agentId, outcome: o.code, amount: data.amount || null,
+    pay: data.pay || null, follow: data.follow || null, notes: data.notes || "", dur: data.dur || null, t: S.now };
+  S.calls.push(call);
+  donor.attempts++; donor.status = o.code; donor.next = data.follow || null; donor.lastCall = S.now;
+  if (!o.unreached) donor.streak = 0;
+  else if (o.cat === "unreachable") {
+    donor.streak++;
+    if (donor.streak >= MAX_UNREACH) { donor.status = "exhausted"; donor.next = null; }
+    else if (!data.follow) donor.next = S.now + o.retry * H;
+  }
+  if (o.code === "donated") { donor.total += data.amount; donor.last = data.amount; }
+  if (o.code === "pledged") { donor.pledge = data.amount; donor.pledgeDue = data.follow; }
+  if (o.code === "do_not_call") donor.dnc = true;
+  if (o.final) donor.next = null;
+  if (!silent) ev(`${agentName(agentId)} ← ${donor.name}: ${label(donor.status === "exhausted" ? "exhausted" : o.code)}${data.amount ? " (" + money(data.amount) + ")" : ""}`);
+  return call;
+}
+
+function openLoad(id) { return S.donors.filter((d) => d.agent === id && !FINAL.has(d.status)).length; }
+
+function distribute(agentIds, mode, { perAgent, limit, city, source, statuses = ["new"] } = {}, silent) {
+  let pool = S.donors.filter((d) => d.agent === null && !d.dnc && statuses.includes(d.status) && (!city || d.city === city) && (!source || d.source === source));
+  if (mode === "fixed") limit = Math.min(limit || Infinity, perAgent * agentIds.length);
+  if (limit) pool = pool.slice(0, limit);
+  const given = Object.fromEntries(agentIds.map((a) => [a, 0]));
+  const load = Object.fromEntries(agentIds.map((a) => [a, openLoad(a)]));
+  pool.forEach((d, i) => {
+    const to = mode === "balanced" ? [...agentIds].sort((a, b) => load[a] - load[b] || a - b)[0] : agentIds[i % agentIds.length];
+    assign(d, to, "auto"); load[to]++; given[to]++;
+  });
+  if (!silent) ev(`توزيع ${mode === "balanced" ? "متوازن" : mode === "equal" ? "بالتساوي" : "بعدد ثابت"}: ` + agentIds.map((a) => `${agentName(a)} ${int(given[a])}`).join("، "));
+  return pool.length;
+}
+function assign(d, to, reason) { S.assignLog.unshift({ t: S.now, donor: d.id, from: d.agent, to, reason }); d.agent = to; }
+
+function transfer(from, toIds, onlyOpen) {
+  const list = S.donors.filter((d) => d.agent === from && (!onlyOpen || !FINAL.has(d.status)));
+  list.forEach((d, i) => assign(d, toIds[i % toIds.length], "transfer"));
+  ev(`نقل ${int(list.length)} متبرع من ${agentName(from)} إلى ${toIds.map(agentName).join(" و ")}`);
+  return list.length;
+}
+
+function queue(agentId) {
+  const rank = (d) => (d.next !== null && d.next <= S.now ? 0 : d.status === "new" ? 1 : d.next === null ? 2 : 3);
+  return S.donors.filter((d) => d.agent === agentId && !FINAL.has(d.status) && !d.dnc)
+    .sort((a, b) => rank(a) - rank(b) || (a.next ?? 0) - (b.next ?? 0) || a.id - b.id);
+}
+
+function simulateDay(share = 0.6, silent) {
+  // each agent works the due part of their queue between 10:00 and 20:00
+  const base = dayStart(S.now) + 10 * H;
+  const codes = Object.keys(WEIGHTS), total = codes.reduce((s, c) => s + WEIGHTS[c], 0);
+  let n = 0;
+  for (const a of S.agents.filter((x) => x.active)) {
+    const q = queue(a.id);
+    const todo = q.slice(0, Math.round(Math.min(q.length, a.target) * share));
+    todo.forEach((d, i) => {
+      S.now = base + Math.floor((i / Math.max(1, todo.length)) * 10 * H) + Math.floor(S.r() * 20) * 60e3;
+      if (d.next && d.next > S.now) return;
+      let x = S.r() * total, code = codes[0];
+      for (const c of codes) { x -= WEIGHTS[c]; if (x <= 0) { code = c; break; } }
+      if (d.status === "pledged" && S.r() < 0.6) code = "donated";
+      const amt = [100, 200, 300, 500, 1000][Math.floor(S.r() * 5)];
+      logCall(d, a.id, { outcome: code, amount: OC[code].amount ? (d.status === "pledged" && code === "donated" ? d.pledge : amt) : null,
+        pay: code === "donated" ? "فودافون كاش" : null, follow: OC[code].follow ? S.now + (1 + Math.floor(S.r() * 3)) * D : null,
+        dur: 30 + Math.floor(S.r() * 300) }, true);
+      n++;
+    });
+  }
+  S.now = base + 10 * H + 5 * 60e3;
+  if (!silent) ev(`محاكاة يوم عمل: ${int(n)} مكالمة`);
+  return n;
+}
+
+/* ============ reports ============ */
+function rangeOf(key) {
+  const t0 = dayStart(S.now);
+  return key === "today" ? [t0, t0 + D] : key === "yesterday" ? [t0 - D, t0] : key === "7" ? [t0 - 6 * D, t0 + D] : [0, Infinity];
+}
+function agentRows(range, only) {
+  const [a, b] = range;
+  return S.agents.filter((x) => !only || x.id === only).map((ag) => {
+    const cs = S.calls.filter((c) => c.agent === ag.id && c.t >= a && c.t < b);
+    const cnt = (...codes) => cs.filter((c) => codes.includes(c.outcome)).length;
+    const reached = cs.filter((c) => !OC[c.outcome].unreached);
+    const reachedDonors = new Set(reached.map((c) => c.donor));
+    const don = cs.filter((c) => c.outcome === "donated");
+    const pl = cs.filter((c) => c.outcome === "pledged");
+    const fulfilled = don.filter((c) => S.calls.some((x) => x.donor === c.donor && x.outcome === "pledged" && x.t < c.t)).length;
+    const mine = S.donors.filter((d) => d.agent === ag.id);
+    const durs = cs.filter((c) => c.dur).map((c) => c.dur);
+    return {
+      ag, calls: cs.length, reached: reached.length, contact: pct(reached.length, cs.length),
+      donated: don.length, amount: don.reduce((s, c) => s + c.amount, 0), pledged: pl.length, pledgedAmt: pl.reduce((s, c) => s + c.amount, 0),
+      fulfilled, interested: cnt("interested"), callbacks: cnt("callback", "send_info"), noAnswer: cnt("no_answer", "busy"), off: cnt("phone_off"),
+      refused: cnt("not_interested", "donated_elsewhere", "do_not_call"), invalid: cnt("wrong_number", "not_in_service"), complaints: cnt("complaint"),
+      conversion: pct(new Set(don.map((c) => c.donor)).size, reachedDonors.size),
+      assigned: mine.length, open: mine.filter((d) => !FINAL.has(d.status)).length, untouched: mine.filter((d) => d.status === "new").length,
+      overdue: mine.filter((d) => d.next && d.next < S.now && !FINAL.has(d.status)).length,
+      openPledges: mine.filter((d) => d.status === "pledged").reduce((s, d) => s + (d.pledge || 0), 0),
+      avgDur: durs.length ? Math.round(durs.reduce((s, x) => s + x, 0) / durs.length) : 0,
+    };
+  });
+}
+
+/* ============ rendering ============ */
+const MANAGER_TABS = [["workflow", "الورك فلو"], ["dashboard", "لوحة المدير"], ["distribution", "التوزيع"], ["donors", "المتبرعين"], ["followups", "المتابعات والوعود"], ["reports", "التقارير"], ["events", "سجل الأحداث"]];
+const AGENT_TABS = [["queue", "قائمة الاتصال"], ["myfollow", "متابعاتي"], ["mycalls", "مكالماتي"], ["mystats", "أدائي"]];
+
+function renderChrome() {
+  $("#roleSeg").innerHTML = `<button data-role="manager" aria-pressed="${S.role === "manager"}">المدير</button>` +
+    S.agents.map((a) => `<button data-role="${a.id}" aria-pressed="${String(S.role) === String(a.id)}" ${a.active ? "" : "disabled"}>${esc(a.name)}</button>`).join("");
+  $$("#roleSeg button").forEach((b) => (b.onclick = () => {
+    S.role = b.dataset.role === "manager" ? "manager" : Number(b.dataset.role);
+    S.tab = S.role === "manager" ? "dashboard" : "queue"; render();
+  }));
+  const tabs = S.role === "manager" ? MANAGER_TABS : AGENT_TABS;
+  $("#tabs").innerHTML = tabs.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${S.tab === k}">${l}</button>`).join("");
+  $$("#tabs button").forEach((b) => (b.onclick = () => { S.tab = b.dataset.tab; render(); }));
+  $("#clock").textContent = fmt(S.now);
+}
+
+function render() { renderChrome(); VIEWS[S.tab](); }
+
+function rangeSel(id, val = "today") {
+  return `<label class="field">الفترة<select id="${id}">${[["today", "اليوم"], ["yesterday", "أمس"], ["7", "آخر ٧ أيام"], ["all", "كل الفترات"]]
+    .map(([v, l]) => `<option value="${v}" ${v === val ? "selected" : ""}>${l}</option>`).join("")}</select></label>`;
+}
+const agentOpts = (sel, all = "كل الايجنتس") => (all ? `<option value="">${all}</option>` : "") + S.agents.filter((a) => a.active).map((a) => `<option value="${a.id}" ${String(sel) === String(a.id) ? "selected" : ""}>${esc(a.name)}</option>`).join("");
+
+function donorTable(list, { agentCol = true, select = false, action = "فتح" } = {}) {
+  if (!list.length) return `<div class="empty">لا يوجد متبرعين هنا.</div>`;
+  return `<div class="tablewrap"><table><thead><tr>${select ? `<th><input type="checkbox" id="selAll" aria-label="تحديد الكل"></th>` : ""}
+    <th>المتبرع</th><th>الموبايل</th><th>المدينة</th><th>المصدر</th>${agentCol ? "<th>الايجنت</th>" : ""}<th>الحالة</th>
+    <th class="num">محاولات</th><th>المتابعة القادمة</th><th class="num">إجمالي تبرعه</th><th></th></tr></thead><tbody>
+    ${list.map((d) => `<tr>${select ? `<td><input type="checkbox" class="sel" value="${d.id}" aria-label="تحديد ${esc(d.name)}"></td>` : ""}
+      <td>${esc(d.name)}${d.dnc ? ' <span class="chip negative">لا تتصل</span>' : ""}</td><td class="num" dir="ltr">${d.phone}</td><td>${esc(d.city)}</td><td>${esc(d.source)}</td>
+      ${agentCol ? `<td>${esc(agentName(d.agent))}</td>` : ""}<td>${chip(d.status)}</td><td class="num">${int(d.attempts)}</td>
+      <td>${d.next ? `<span class="chip ${d.next <= S.now ? "overdue" : ""}">${fmt(d.next)}</span>` : "—"}</td>
+      <td class="num">${d.total ? money(d.total) : "—"}</td><td><button class="btn small" data-open="${d.id}">${action}</button></td></tr>`).join("")}
+    </tbody></table></div>`;
+}
+function bindOpen(root) {
+  $$("[data-open]", root).forEach((b) => (b.onclick = () => callModal(S.donors.find((d) => d.id === Number(b.dataset.open)))));
+  const all = $("#selAll", root); if (all) all.onchange = () => $$(".sel", root).forEach((c) => (c.checked = all.checked));
+}
+
+function callModal(d) {
+  const isAgent = S.role !== "manager";
+  const calls = S.calls.filter((c) => c.donor === d.id).sort((a, b) => b.t - a.t);
+  let chosen = null;
+  const root = $("#modalRoot");
+  root.innerHTML = `<div class="overlay" id="ov"><div class="modal" role="dialog" aria-modal="true" aria-label="${esc(d.name)}">
+    <div class="head"><div><h2>${esc(d.name)}</h2><div class="muted"><span dir="ltr">${d.phone}</span> · ${esc(d.city)} · ${esc(d.source)}</div></div>
+      <div class="row">${chip(d.status)}<button class="btn small" id="xClose">إغلاق</button></div></div>
+    <div class="grid2"><div class="kpi"><span>آخر تبرع</span><b>${d.last ? money(d.last) : "—"}</b></div>
+      <div class="kpi"><span>المحاولات</span><b>${int(d.attempts)}</b><small>${d.streak ? `${int(d.streak)} من ${int(MAX_UNREACH)} بدون رد متتالي` : ""}</small></div>
+      <div class="kpi"><span>وعد قائم</span><b>${d.status === "pledged" ? money(d.pledge) : "—"}</b><small>${d.status === "pledged" ? fmt(d.pledgeDue) : ""}</small></div>
+      <div class="kpi"><span>الايجنت</span><b style="font-size:15px">${esc(agentName(d.agent))}</b></div></div>
+    ${d.dnc ? `<div class="chip negative">هذا المتبرع طلب عدم الاتصال</div>` : ""}
+    ${isAgent && !d.dnc ? `<h3>نتيجة المكالمة</h3>
+      <div class="outcomes">${OUTCOMES.map((o) => `<button type="button" data-oc="${o.code}" aria-pressed="false"><span class="chip ${o.cat}">${esc(o.label)}</span></button>`).join("")}</div>
+      <form id="cf" class="grid2">
+        <label class="field" data-n="amount" hidden>المبلغ (ج.م)<input id="cAmt" type="number" min="1" value="${d.status === "pledged" ? d.pledge : 200}"></label>
+        <label class="field" data-n="pay" hidden>طريقة الدفع<select id="cPay"><option>فودافون كاش</option><option>إنستاباي</option><option>تحويل بنكي</option><option>مندوب تحصيل</option><option>فوري</option></select></label>
+        <label class="field" data-n="follow" hidden><span id="fLbl">موعد المتابعة</span><select id="cFollow">
+          <option value="">بدون</option><option value="${2 * H}">بعد ساعتين</option><option value="${D}">بكرة</option><option value="${2 * D}">بعد يومين</option><option value="${3 * D}">بعد ٣ أيام</option><option value="${7 * D}">بعد أسبوع</option></select></label>
+        <label class="field" style="grid-column:1/-1">ملاحظات<input id="cNotes" placeholder="مثال: يفضّل الاتصال بعد المغرب"></label>
+        <div class="row" style="grid-column:1/-1"><button class="btn primary" id="cSave" disabled>حفظ النتيجة</button><span class="muted" id="hint"></span></div>
+      </form>` : ""}
+    ${!isAgent ? `<div class="note">المدير يشوف السجل هنا. لتجربة تسجيل مكالمة اختار اسم الايجنت من الشريط فوق.</div>` : ""}
+    ${!isAgent && (FINAL.has(d.status)) ? `<div class="row"><button class="btn" id="reopen">إعادة فتح المتبرع للاتصال</button></div>` : ""}
+    <h3>سجل المكالمات (${int(calls.length)})</h3>
+    <div class="history">${calls.length ? calls.map((c) => `<div>${chip(c.outcome)}<span class="muted">${fmt(c.t)}</span><span>${esc(agentName(c.agent))}</span>
+      ${c.amount ? `<b class="num">${money(c.amount)}</b>` : ""}${c.pay ? `<span class="muted">${esc(c.pay)}</span>` : ""}
+      ${c.follow ? `<span class="muted">متابعة: ${fmt(c.follow)}</span>` : ""}${c.notes ? `<span>— ${esc(c.notes)}</span>` : ""}</div>`).join("") : '<span class="muted">لا توجد مكالمات بعد.</span>'}</div>
+  </div></div>`;
+  const close = () => (root.innerHTML = "");
+  $("#xClose").onclick = close;
+  $("#ov").onclick = (e) => { if (e.target.id === "ov") close(); };
+  document.onkeydown = (e) => { if (e.key === "Escape") close(); };
+  const ro = $("#reopen"); if (ro) ro.onclick = () => { d.status = "new"; d.streak = 0; d.next = null; ev(`المدير أعاد فتح ${d.name}`); close(); render(); };
+  $$("[data-oc]").forEach((b) => (b.onclick = () => {
+    chosen = OC[b.dataset.oc];
+    $$("[data-oc]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    $('[data-n="amount"]').hidden = !chosen.amount;
+    $('[data-n="pay"]').hidden = chosen.code !== "donated";
+    const showF = chosen.follow || ["interested", "send_info", "complaint", "no_answer", "busy", "phone_off"].includes(chosen.code);
+    $('[data-n="follow"]').hidden = !showF;
+    $("#fLbl").textContent = chosen.code === "pledged" ? "موعد تحصيل الوعد (مطلوب)" : chosen.follow ? "موعد المتابعة (مطلوب)" : "موعد المتابعة (اختياري)";
+    $("#cFollow").value = chosen.follow ? String(D) : "";
+    $("#hint").textContent = chosen.unreached && chosen.cat === "unreachable" ? `بدون موعد: يرجع للقائمة تلقائياً بعد ${int(chosen.retry)} ساعات` : chosen.final ? "المتبرع هيخرج من قائمتك" : "";
+    $("#cSave").disabled = false;
+  }));
+  const f = $("#cf");
+  if (f) f.onsubmit = (e) => {
+    e.preventDefault(); if (!chosen) return;
+    const fv = $('[data-n="follow"]').hidden ? "" : $("#cFollow").value;
+    try {
+      logCall(d, S.role, { outcome: chosen.code, amount: chosen.amount ? Number($("#cAmt").value) : null, pay: chosen.code === "donated" ? $("#cPay").value : null,
+        follow: fv ? S.now + Number(fv) : null, notes: $("#cNotes").value, dur: 60 + Math.floor(Math.random() * 200) });
+      S.now += 4 * 60e3; // each call takes a few minutes of simulated time
+      toast(`تم حفظ: ${chosen.label}`); close(); render();
+    } catch (err) { toast(err.message); }
+  };
+}
+
+function agentsTable(rows, full) {
+  return `<div class="tablewrap"><table><thead><tr><th>الايجنت</th><th class="num">مكالمات</th><th>الهدف</th><th class="num">نسبة الوصول</th>
+    <th class="num">اتبرع</th><th class="num">المبلغ</th><th class="num">وعود</th>
+    ${full ? `<th class="num">مبلغ الوعود</th><th class="num">وعود اتحصّلت</th><th class="num">عنده نية</th><th class="num">معاودة/تفاصيل</th><th class="num">لا يرد/مشغول</th><th class="num">مغلق</th><th class="num">رفض</th><th class="num">رقم خطأ</th><th class="num">شكاوى</th><th class="num">متوسط المكالمة</th>` : ""}
+    <th class="num">التحويل</th><th class="num">مفتوح</th><th class="num">لم يُتصل</th><th class="num">متأخر</th></tr></thead><tbody>
+    ${rows.map((r) => `<tr><td>${esc(r.ag.name)}${r.ag.active ? "" : ' <span class="chip">موقوف</span>'}</td><td class="num">${int(r.calls)}</td>
+      <td><div class="progress" title="${r.calls}/${r.ag.target}"><i style="width:${Math.min(100, (100 * r.calls) / r.ag.target)}%"></i></div></td>
+      <td class="num">${pctS(r.contact)}</td><td class="num">${int(r.donated)}</td><td class="num">${money(r.amount)}</td><td class="num">${int(r.pledged)}</td>
+      ${full ? `<td class="num">${money(r.pledgedAmt)}</td><td class="num">${int(r.fulfilled)}</td><td class="num">${int(r.interested)}</td><td class="num">${int(r.callbacks)}</td><td class="num">${int(r.noAnswer)}</td><td class="num">${int(r.off)}</td><td class="num">${int(r.refused)}</td><td class="num">${int(r.invalid)}</td><td class="num">${int(r.complaints)}</td><td class="num">${int(Math.round(r.avgDur / 6) / 10)} د</td>` : ""}
+      <td class="num">${pctS(r.conversion)}</td><td class="num">${int(r.open)}</td><td class="num">${int(r.untouched)}</td>
+      <td class="num" style="${r.overdue ? "color:var(--bad);font-weight:600" : ""}">${int(r.overdue)}</td></tr>`).join("")}</tbody></table></div>`;
+}
+function outcomeBars(calls) {
+  const counts = OUTCOMES.map((o) => ({ o, n: calls.filter((c) => c.outcome === o.code).length }));
+  const max = Math.max(1, ...counts.map((x) => x.n));
+  return `<div class="bars">${counts.map(({ o, n }) => `<div class="hbar"><span>${esc(o.label)}</span><div class="track"><div class="fill ${o.cat}" style="width:${(100 * n) / max}%"></div></div><span class="num">${int(n)}</span></div>`).join("")}</div>`;
+}
+const callsIn = ([a, b], agent) => S.calls.filter((c) => c.t >= a && c.t < b && (!agent || c.agent === agent));
+
+/* ---------- views ---------- */
+const VIEWS = {
+  workflow() {
+    $("#main").innerHTML = `
+    <div class="head"><h1>الورك فلو: من استلام الداتا لحد التقرير</h1></div>
+    <div class="note">ده محاكي كامل في المتصفح ببيانات تجريبية (١٦٠ متبرع و٤ ايجنتس وتاريخ ٣ أيام). بدّل بين المدير والايجنتس من الشريط فوق، وقدّم الوقت بأزرار «+ ساعة» و«+ يوم» علشان تشوف المتابعات بتستحق إزاي.</div>
+    <div class="flow">
+      <div class="step"><b>استلام الداتا</b><span class="muted">المدير يرفع ملف CSV/Excel بالمتبرعين. الأرقام المكررة بتتشال تلقائياً.</span></div>
+      <div class="step"><b>التوزيع</b><span class="muted">متوازن أو بالتساوي أو عدد ثابت لكل ايجنت، مع فلتر بالمدينة والمصدر. أو توزيع يدوي لمتبرعين محددين.</span></div>
+      <div class="step"><b>الايجنت يتصل</b><span class="muted">كل ايجنت يشوف داتته بس، مرتبة: المستحق الآن ← الجديد ← المهتمين ← المواعيد القادمة.</span></div>
+      <div class="step"><b>تسجيل النتيجة</b><span class="muted">١٤ نتيجة (تحت). كل نتيجة بتحدد المتبرع يرجع امتى أو يخرج من القائمة.</span></div>
+      <div class="step"><b>المتابعة</b><span class="muted">الوعود ومعاودة الاتصال لها موعد. لا يرد/مغلق/مشغول يرجع تلقائياً، وبعد ٥ محاولات فاشلة متتالية يتقفل «استنفد المحاولات».</span></div>
+      <div class="step"><b>التقارير</b><span class="muted">أداء كل ايجنت، توزيع النتائج، الوعود القائمة، المكالمات يومياً، ونقل الداتا لو ايجنت غايب.</span></div>
+    </div>
+    <div class="panel"><h2>دورة حياة المتبرع</h2>
+<pre class="mermaid">flowchart LR
+  N[جديد] -->|توزيع| A[عند الايجنت]
+  A --> C{نتيجة المكالمة}
+  C -->|اتبرع| DONE[مقفول: تبرع]
+  C -->|وعد بالتبرع| P[وعد + موعد تحصيل]
+  P -->|اتصال في الموعد| C
+  C -->|مهتم / معاودة / تفاصيل / شكوى| F[متابعة بموعد]
+  F --> C
+  C -->|لا يرد / مشغول / مغلق| R[إعادة محاولة تلقائية]
+  R -->|أقل من 5 محاولات| C
+  R -->|5 محاولات| X[استنفد المحاولات]
+  C -->|رفض / تبرع لجهة أخرى / لا تتصل| NEG[مقفول: رفض]
+  C -->|رقم خطأ / غير موجود| INV[مقفول: رقم غير صالح]
+  X -.->|المدير يعيد الفتح| N
+  NEG -.->|المدير يعيد الفتح| N</pre></div>
+    <div class="panel"><h2>نتائج المكالمة وتأثيرها</h2><div class="legend">${OUTCOMES.map((o) => `<div>${chip(o.code)}<span class="muted">${
+      o.final ? "يخرج من قائمة الايجنت" : o.cat === "unreachable" ? `يرجع تلقائياً بعد ${int(o.retry)} ساعات` : o.follow ? "لازم موعد متابعة" : "يفضل في القائمة، موعد اختياري"}${o.amount ? " · مبلغ" : ""}</span></div>`).join("")}</div></div>
+    <div class="panel"><h2>جرّب السيناريو ده</h2><ol style="margin:0;padding-inline-start:20px;display:flex;flex-direction:column;gap:4px">
+      <li>من «التوزيع» وزّع الـ٦٠ متبرع الجداد بطريقة «متوازن».</li>
+      <li>بدّل لـ«سارة علي» واضغط «اتصل بالتالي»، سجّل «وعد بالتبرع» بموعد بكرة.</li>
+      <li>اضغط «+ يوم» وارجع لقائمة سارة: الوعد طالع أول القائمة بلون أحمر (مستحق).</li>
+      <li>ارجع للمدير وافتح «التقارير»: هتلاقي الوعد ونسبة التحويل اتحسبوا.</li>
+      <li>من «التوزيع» أوقف «يوسف خالد» وانقل داتته المفتوحة لباقي الفريق.</li></ol></div>`;
+    if (window.mermaid?.run) window.mermaid.run();
+  },
+
+  dashboard() {
+    const rows = agentRows(rangeOf("today"));
+    const today = callsIn(rangeOf("today"));
+    const sum = (k) => rows.reduce((s, r) => s + r[k], 0);
+    const unassigned = S.donors.filter((d) => d.agent === null);
+    $("#main").innerHTML = `<div class="head"><h1>لوحة المدير — اليوم</h1><span class="muted">${fmt(S.now)}</span></div>
+    <div class="kpis">
+      <div class="kpi"><span>إجمالي المتبرعين</span><b>${int(S.donors.length)}</b><small>${int(unassigned.length)} غير موزع</small></div>
+      <div class="kpi"><span>مكالمات اليوم</span><b>${int(today.length)}</b><small>وصول ${pctS(pct(sum("reached"), today.length))}</small></div>
+      <div class="kpi"><span>تبرعات اليوم</span><b>${int(sum("donated"))}</b><small>${money(sum("amount"))}</small></div>
+      <div class="kpi"><span>وعود اليوم</span><b>${int(sum("pledged"))}</b><small>${money(sum("pledgedAmt"))}</small></div>
+      <div class="kpi"><span>وعود قائمة لم تُحصّل</span><b>${money(sum("openPledges"))}</b></div>
+      <div class="kpi"><span>متابعات متأخرة</span><b style="color:var(--bad)">${int(sum("overdue"))}</b></div>
+    </div>
+    ${today.length ? "" : `<div class="note">مفيش مكالمات النهارده لسه. بدّل لايجنت وسجّل مكالمة، أو اضغط «محاكاة يوم عمل».</div>`}
+    <div class="cols"><div class="panel"><h2>الايجنتس النهارده</h2>${agentsTable(rows, false)}</div>
+      <div class="panel"><h2>نتائج مكالمات اليوم</h2>${outcomeBars(today)}</div></div>`;
+  },
+
+  distribution() {
+    const active = S.agents.filter((a) => a.active);
+    const un = S.donors.filter((d) => d.agent === null && d.status === "new" && !d.dnc).length;
+    const maxOpen = Math.max(1, ...S.agents.map((a) => openLoad(a.id)));
+    $("#main").innerHTML = `<div class="head"><h1>توزيع الداتا</h1></div>
+    <div class="kpis"><div class="kpi"><span>جديد غير موزع</span><b>${int(un)}</b></div>
+      ${S.agents.map((a) => { const o = openLoad(a.id); const all = S.donors.filter((d) => d.agent === a.id); return `<div class="kpi"><span>${esc(a.name)}${a.active ? "" : " (موقوف)"}</span><b>${int(o)}</b>
+      <small>مفتوح · ${int(all.filter((d) => d.status === "new").length)} جديد · ${int(all.length)} إجمالي</small><div class="progress"><i style="width:${(100 * o) / maxOpen}%"></i></div></div>`; }).join("")}</div>
+    <div class="cols">
+      <form class="panel" id="autoF"><h2>توزيع تلقائي</h2>
+        <div class="row">${active.map((a) => `<label><input type="checkbox" name="ag" value="${a.id}" checked> ${esc(a.name)}</label>`).join("")}</div>
+        <div class="grid2">
+          <label class="field">الطريقة<select id="mode"><option value="balanced">متوازن (الأقل حملاً أولاً)</option><option value="equal">بالتساوي (بالدور)</option><option value="fixed">عدد ثابت لكل ايجنت</option></select></label>
+          <label class="field">عدد لكل ايجنت<input id="per" type="number" min="1" value="10"></label>
+          <label class="field">المدينة<select id="dc"><option value="">الكل</option>${CITIES.map((c) => `<option>${c}</option>`).join("")}</select></label>
+          <label class="field">المصدر<select id="ds"><option value="">الكل</option>${SOURCES.map((c) => `<option>${c}</option>`).join("")}</select></label>
+          <label class="field">تشمل<select id="dst"><option value="new">الجديد فقط</option><option value="new,exhausted">الجديد + استنفد المحاولات</option></select></label>
+        </div><div class="row"><button class="btn primary">وزّع الآن</button></div></form>
+      <div class="panel"><h2>إدارة الايجنتس ونقل الداتا</h2>
+        <div class="tablewrap"><table><thead><tr><th>الايجنت</th><th class="num">مفتوح</th><th>الحالة</th><th></th></tr></thead><tbody>
+          ${S.agents.map((a) => `<tr><td>${esc(a.name)}</td><td class="num">${int(openLoad(a.id))}</td><td>${a.active ? '<span class="chip success">نشط</span>' : '<span class="chip">موقوف</span>'}</td>
+            <td><button class="btn small" data-tg="${a.id}">${a.active ? "إيقاف" : "تفعيل"}</button></td></tr>`).join("")}</tbody></table></div>
+        <form id="trF" class="grid2"><label class="field">انقل المفتوح من<select id="trFrom">${S.agents.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select></label>
+          <label class="field">إلى<select id="trTo"><option value="all">باقي الفريق النشط بالتساوي</option>${agentOpts("", null)}</select></label>
+          <div class="row"><button class="btn">انقل</button></div></form></div>
+    </div>
+    <div class="panel"><h2>آخر عمليات التوزيع</h2>${S.assignLog.length ? `<div class="tablewrap" style="max-height:300px"><table><thead><tr><th>الوقت</th><th>المتبرع</th><th>من</th><th>إلى</th><th>النوع</th></tr></thead><tbody>
+      ${S.assignLog.slice(0, 60).map((x) => `<tr><td>${fmt(x.t)}</td><td>${esc(S.donors[x.donor - 1].name)}</td><td>${esc(x.from ? agentName(x.from) : "—")}</td><td>${esc(agentName(x.to))}</td><td>${{ auto: "تلقائي", manual: "يدوي", transfer: "نقل" }[x.reason]}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty">لا توجد عمليات.</div>'}</div>`;
+    $("#autoF").onsubmit = (e) => {
+      e.preventDefault();
+      const ids = $$('input[name="ag"]:checked').map((c) => Number(c.value));
+      if (!ids.length) return toast("اختار ايجنت واحد على الأقل");
+      const mode = $("#mode").value;
+      const n = distribute(ids, mode, { perAgent: Number($("#per").value), city: $("#dc").value, source: $("#ds").value, statuses: $("#dst").value.split(",") });
+      toast(n ? `تم توزيع ${int(n)} متبرع` : "مفيش متبرعين يطابقوا الفلتر"); render();
+    };
+    $$("[data-tg]").forEach((b) => (b.onclick = () => {
+      const a = S.agents.find((x) => x.id === Number(b.dataset.tg)); a.active = !a.active;
+      ev(`${a.active ? "تفعيل" : "إيقاف"} ${a.name}`); render();
+    }));
+    $("#trF").onsubmit = (e) => {
+      e.preventDefault();
+      const from = Number($("#trFrom").value), toV = $("#trTo").value;
+      const to = toV === "all" ? S.agents.filter((a) => a.active && a.id !== from).map((a) => a.id) : [Number(toV)];
+      if (!to.length || to.includes(from)) return toast("اختار ايجنت مختلف ونشط");
+      toast(`تم نقل ${int(transfer(from, to, true))} متبرع`); render();
+    };
+  },
+
+  donors() {
+    const st = S.dFilter || (S.dFilter = { q: "", agent: "", status: "", city: "" });
+    $("#main").innerHTML = `<div class="head"><h1>المتبرعين</h1><span class="muted">رفع الملفات متاح في النسخة الكاملة (CSV)</span></div>
+      <div class="panel"><div class="row">
+        <label class="field">بحث<input id="fq" value="${esc(st.q)}" placeholder="اسم أو رقم"></label>
+        <label class="field">الايجنت<select id="fa"><option value="">الكل</option><option value="none" ${st.agent === "none" ? "selected" : ""}>غير موزع</option>${agentOpts(st.agent, null)}</select></label>
+        <label class="field">الحالة<select id="fs"><option value="">الكل</option>${["new", ...OUTCOMES.map((o) => o.code), "exhausted"].map((c) => `<option value="${c}" ${st.status === c ? "selected" : ""}>${esc(label(c))}</option>`).join("")}</select></label>
+        <label class="field">المدينة<select id="fc"><option value="">الكل</option>${CITIES.map((c) => `<option ${st.city === c ? "selected" : ""}>${c}</option>`).join("")}</select></label></div>
+        <div class="row"><span class="muted" id="cnt"></span><span style="flex:1"></span>
+          <label class="field">وزّع المحدد على<select id="ba">${agentOpts("", null)}</select></label><button class="btn" id="bAssign">توزيع يدوي</button></div></div>
+      <div id="list"></div>`;
+    const draw = () => {
+      const q = st.q.trim();
+      const list = S.donors.filter((d) => (!q || d.name.includes(q) || d.phone.includes(q)) && (!st.agent || (st.agent === "none" ? d.agent === null : d.agent === Number(st.agent)))
+        && (!st.status || d.status === st.status) && (!st.city || d.city === st.city));
+      $("#cnt").textContent = `${int(list.length)} متبرع`;
+      $("#list").innerHTML = donorTable(list, { select: true });
+      bindOpen($("#list"));
+    };
+    $("#fq").oninput = (e) => { st.q = e.target.value; draw(); };
+    [["fa", "agent"], ["fs", "status"], ["fc", "city"]].forEach(([id, k]) => ($("#" + id).onchange = (e) => { st[k] = e.target.value; draw(); }));
+    $("#bAssign").onclick = () => {
+      const ids = $$(".sel:checked").map((c) => Number(c.value)); if (!ids.length) return toast("حدد متبرعين الأول");
+      const to = Number($("#ba").value); ids.forEach((id) => assign(S.donors[id - 1], to, "manual"));
+      ev(`توزيع يدوي: ${int(ids.length)} متبرع إلى ${agentName(to)}`); toast(`تم توزيع ${int(ids.length)} متبرع`); draw();
+    };
+    draw();
+  },
+
+  followups() {
+    const ag = S.fAgent || "";
+    const list = S.donors.filter((d) => d.next && d.next <= S.now + D && !FINAL.has(d.status) && (!ag || d.agent === Number(ag))).sort((a, b) => a.next - b.next);
+    const pl = S.donors.filter((d) => d.status === "pledged" && (!ag || d.agent === Number(ag))).sort((a, b) => a.pledgeDue - b.pledgeDue);
+    const complaints = S.donors.filter((d) => d.status === "complaint");
+    $("#main").innerHTML = `<div class="head"><h1>المتابعات والوعود</h1><label class="field">الايجنت<select id="fa">${agentOpts(ag)}</select></label></div>
+      <div class="panel"><h2>مستحق خلال ٢٤ ساعة أو متأخر (${int(list.length)})</h2>${donorTable(list)}</div>
+      <div class="panel"><h2>الوعود القائمة — ${money(pl.reduce((s, d) => s + d.pledge, 0))}</h2>${pl.length ? `<div class="tablewrap"><table><thead><tr><th>المتبرع</th><th>الايجنت</th><th class="num">المبلغ</th><th>موعد التحصيل</th><th></th></tr></thead><tbody>
+        ${pl.map((d) => `<tr><td>${esc(d.name)}</td><td>${esc(agentName(d.agent))}</td><td class="num">${money(d.pledge)}</td><td><span class="chip ${d.pledgeDue < S.now ? "overdue" : ""}">${fmt(d.pledgeDue)}</span></td><td><button class="btn small" data-open="${d.id}">فتح</button></td></tr>`).join("")}</tbody></table></div>` : '<div class="empty">لا توجد وعود قائمة.</div>'}</div>
+      <div class="panel"><h2>شكاوى تحتاج مراجعة المدير (${int(complaints.length)})</h2>${donorTable(complaints)}</div>`;
+    $("#fa").onchange = (e) => { S.fAgent = e.target.value; render(); };
+    bindOpen($("#main"));
+  },
+
+  reports() {
+    const rk = S.rRange || "7", ag = S.rAgent ? Number(S.rAgent) : null;
+    const range = rangeOf(rk);
+    const rows = agentRows(range, ag);
+    const calls = callsIn(range, ag);
+    const t0 = dayStart(S.now);
+    const days = Array.from({ length: 7 }, (_, i) => t0 - (6 - i) * D).map((s) => {
+      const cs = S.calls.filter((c) => c.t >= s && c.t < s + D && (!ag || c.agent === ag));
+      return { s, n: cs.length, amt: cs.filter((c) => c.outcome === "donated").reduce((x, c) => x + c.amount, 0) };
+    });
+    const maxN = Math.max(1, ...days.map((d) => d.n)), maxA = Math.max(1, ...days.map((d) => d.amt));
+    const hours = Array.from({ length: 11 }, (_, i) => 10 + i).map((h) => {
+      const cs = calls.filter((c) => new Date(c.t).getHours() === h);
+      return { h, n: cs.length, r: pct(cs.filter((c) => !OC[c.outcome].unreached).length, cs.length) };
+    }).filter((x) => x.n);
+    $("#main").innerHTML = `<div class="head"><h1>التقارير</h1><div class="row">${rangeSel("rr", rk)}<label class="field">الايجنت<select id="ra">${agentOpts(S.rAgent || "")}</select></label>
+      <button class="btn" id="copyCsv">نسخ تقرير الايجنتس (CSV)</button></div></div>
+      <div class="panel"><h2>أداء كل ايجنت</h2>${agentsTable(rows, true)}
+        <p class="muted">نسبة الوصول = مكالمات حصل فيها كلام ÷ كل المكالمات. التحويل = متبرعين اتبرعوا ÷ متبرعين اتكلمنا معاهم. «مفتوح» و«متأخر» لحظيين مش مرتبطين بالفترة.</p></div>
+      <div class="cols">
+        <div class="panel"><h2>نتائج المكالمات (${int(calls.length)})</h2>${outcomeBars(calls)}</div>
+        <div class="panel"><h2>المكالمات آخر ٧ أيام</h2><div class="cols-chart">${days.map((d) => `<div style="height:${(100 * d.n) / maxN}%"><em>${int(d.n)}</em><span>${new Date(d.s).toLocaleDateString("ar-EG", { weekday: "short" })}</span></div>`).join("")}</div>
+          <h2>التبرعات المحصّلة يومياً</h2><div class="cols-chart">${days.map((d) => `<div style="height:${(100 * d.amt) / maxA}%;background:var(--ok)" title="${money(d.amt)}"><em>${d.amt ? int(d.amt) : ""}</em><span>${new Date(d.s).toLocaleDateString("ar-EG", { weekday: "short" })}</span></div>`).join("")}</div></div>
+        <div class="panel"><h2>أفضل وقت للاتصال</h2><p class="muted">نسبة الرد حسب الساعة في الفترة المختارة.</p>
+          <div class="bars">${hours.map((x) => `<div class="hbar"><span>${int(x.h > 12 ? x.h - 12 : x.h)} ${x.h >= 12 ? "م" : "ص"} (${int(x.n)} مكالمة)</span><div class="track"><div class="fill" style="width:${x.r}%"></div></div><span class="num">${pctS(x.r)}</span></div>`).join("") || '<span class="muted">لا توجد بيانات.</span>'}</div></div>
+      </div>`;
+    $("#rr").onchange = (e) => { S.rRange = e.target.value; render(); };
+    $("#ra").onchange = (e) => { S.rAgent = e.target.value; render(); };
+    $("#copyCsv").onclick = () => {
+      const head = "الايجنت,مكالمات,نسبة الوصول,اتبرع,المبلغ,وعود,وعود اتحصلت,عنده نية,معاودة,لا يرد,مغلق,رفض,رقم خطأ,التحويل,مفتوح,متأخر";
+      const csv = [head, ...rows.map((r) => [r.ag.name, r.calls, r.contact, r.donated, r.amount, r.pledged, r.fulfilled, r.interested, r.callbacks, r.noAnswer, r.off, r.refused, r.invalid, r.conversion, r.open, r.overdue].join(","))].join("\n");
+      navigator.clipboard?.writeText(csv).then(() => toast("اتنسخ — الصقه في Excel"), () => toast("النسخ غير متاح هنا")) ?? toast("النسخ غير متاح هنا");
+    };
+  },
+
+  events() {
+    $("#main").innerHTML = `<div class="head"><h1>سجل الأحداث</h1><span class="muted">كل اللي حصل في المحاكي من أول ما فتحته</span></div>
+      <div class="panel"><div class="log">${S.events.map((e) => `<div><time>${fmt(e.t)}</time><span>${esc(e.msg)}</span></div>`).join("") || '<div class="empty">لا توجد أحداث.</div>'}</div></div>`;
+  },
+
+  /* ---- agent ---- */
+  queue() {
+    const me = S.agents.find((a) => a.id === S.role);
+    const q = queue(me.id);
+    const r = agentRows(rangeOf("today"), me.id)[0];
+    const due = q.filter((d) => d.next && d.next <= S.now).length;
+    $("#main").innerHTML = `<div class="head"><h1>قائمة الاتصال — ${esc(me.name)}</h1><button class="btn primary" id="next" ${q.length ? "" : "disabled"}>اتصل بالتالي</button></div>
+      <div class="kpis"><div class="kpi"><span>مكالمات اليوم</span><b>${int(r.calls)} / ${int(me.target)}</b><div class="progress"><i style="width:${Math.min(100, (100 * r.calls) / me.target)}%"></i></div></div>
+        <div class="kpi"><span>تبرعات اليوم</span><b>${int(r.donated)}</b><small>${money(r.amount)}</small></div>
+        <div class="kpi"><span>وعود اليوم</span><b>${int(r.pledged)}</b><small>${money(r.pledgedAmt)}</small></div>
+        <div class="kpi"><span>مستحق الآن</span><b style="color:var(--bad)">${int(due)}</b><small>من ${int(q.length)} في قائمتك</small></div></div>
+      <p class="muted">الترتيب: المستحق الآن (أحمر) ← الجديد ← المهتمين بدون موعد ← المواعيد القادمة. الايجنت مش شايف غير المتبرعين المخصصين له.</p>
+      ${q.length ? "" : `<div class="note">قائمتك فاضية. اطلب من المدير يوزّع عليك داتا (من تبويب «التوزيع»).</div>`}
+      <div id="list">${donorTable(q, { agentCol: false, action: "اتصال" })}</div>`;
+    bindOpen($("#list"));
+    if (q.length) $("#next").onclick = () => callModal(q[0]);
+  },
+  myfollow() {
+    const list = S.donors.filter((d) => d.agent === S.role && d.next && !FINAL.has(d.status)).sort((a, b) => a.next - b.next);
+    $("#main").innerHTML = `<div class="head"><h1>متابعاتي</h1></div>${donorTable(list, { agentCol: false, action: "اتصال" })}`;
+    bindOpen($("#main"));
+  },
+  mycalls() {
+    const cs = S.calls.filter((c) => c.agent === S.role).sort((a, b) => b.t - a.t).slice(0, 300);
+    $("#main").innerHTML = `<div class="head"><h1>مكالماتي</h1></div>${cs.length ? `<div class="tablewrap"><table><thead><tr><th>الوقت</th><th>المتبرع</th><th>النتيجة</th><th class="num">المبلغ</th><th>متابعة</th><th>ملاحظات</th></tr></thead><tbody>
+      ${cs.map((c) => `<tr><td>${fmt(c.t)}</td><td>${esc(S.donors[c.donor - 1].name)}</td><td>${chip(c.outcome)}</td><td class="num">${c.amount ? money(c.amount) : "—"}</td><td>${c.follow ? fmt(c.follow) : "—"}</td><td>${esc(c.notes)}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty">لا توجد مكالمات.</div>'}`;
+  },
+  mystats() {
+    const rk = S.mRange || "today";
+    const r = agentRows(rangeOf(rk), S.role)[0];
+    $("#main").innerHTML = `<div class="head"><h1>أدائي</h1>${rangeSel("mr", rk)}</div>
+      <div class="kpis"><div class="kpi"><span>مكالمات</span><b>${int(r.calls)}</b><small>وصول ${pctS(r.contact)}</small></div>
+        <div class="kpi"><span>تبرعات</span><b>${int(r.donated)}</b><small>${money(r.amount)}</small></div>
+        <div class="kpi"><span>وعود</span><b>${int(r.pledged)}</b><small>اتحصّل ${int(r.fulfilled)}</small></div>
+        <div class="kpi"><span>نسبة التحويل</span><b>${pctS(r.conversion)}</b></div>
+        <div class="kpi"><span>متابعات متأخرة</span><b>${int(r.overdue)}</b></div></div>
+      <div class="panel"><h2>نتائج مكالماتي</h2>${outcomeBars(callsIn(rangeOf(rk), S.role))}</div>`;
+    $("#mr").onchange = (e) => { S.mRange = e.target.value; render(); };
+  },
+};
+
+/* ============ global controls ============ */
+$("#plus1h").onclick = () => { S.now += H; ev("تقديم الوقت ساعة"); render(); };
+$("#plus1d").onclick = () => { const t = new Date(S.now + D); t.setHours(10, 0, 0, 0); S.now = t.getTime(); ev("بداية يوم عمل جديد"); render(); };
+$("#simDay").onclick = () => { const n = simulateDay(0.8); toast(`اتعمل ${int(n)} مكالمة`); render(); };
+$("#reset").onclick = () => { fresh(); render(); toast("تمت إعادة البيانات التجريبية"); };
+
+fresh(); render();
+</script>
+</body>
+</html>
