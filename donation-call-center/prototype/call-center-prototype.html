@@ -355,14 +355,16 @@ const OUTCOMES = [
   { code: "no_answer", label: "لا يرد", cat: "unreachable", group: "none", follow: "opt" },
   { code: "busy", label: "مشغول", cat: "unreachable", group: "none", follow: "opt" },
   { code: "phone_off", label: "مغلق", cat: "unreachable", group: "none", follow: "opt" },
+  { code: "duplicate", label: "مكرر", cat: "invalid", group: "dup", closes: true },
   { code: "wrong_number", label: "رقم خطأ", cat: "invalid", group: "num" },
   { code: "not_in_service", label: "غير موجود بالخدمة", cat: "invalid", group: "num" },
 ];
 const OC = Object.fromEntries(OUTCOMES.map((o) => [o.code, o]));
 const GROUPS = [["ans", "رد عليك"], ["none", "مردّش"], ["num", "مشكلة في الرقم"]];
+const REPORT_GROUPS = [...GROUPS, ["dup", "مكرر"]];
 const STATUS_EXTRA = { new: { label: "جديد", cat: "" }, exhausted: { label: "استنفد المحاولات", cat: "negative" }, nophone: { label: "كل أرقامه غير صالحة", cat: "invalid" } };
 const DEFAULT_SETTINGS = { retry: { no_answer: 4, busy: 2, phone_off: 6 }, perDay: 3, maxTries: 5, dayStart: 10, dayEnd: 20,
-  pause: { break: 30, wc: 15, single: 15 }, sched: { 100: { start: 10, end: 18 }, 101: { start: 10, end: 18 }, 102: { start: 12, end: 20 }, 103: { start: 10, end: 18 } } };
+  pause: { break: 45, single: 15 }, sched: { 100: { start: 10, end: 18 }, 101: { start: 10, end: 18 }, 102: { start: 12, end: 20 }, 103: { start: 10, end: 18 } } };
 const hourLabel = (h) => `${n(h % 12 || 12)} ${h < 12 ? "ص" : "م"}`;
 /* when to try again: after N hours, but never past the working day or the daily cap */
 function nextRetry(from, hours, triesToday, cfg = S.settings) {
@@ -418,7 +420,7 @@ const agentName = (id) => agentById(id)?.name || "—";
 const batchById = (id) => S.batches.find((b) => b.id === id);
 const goodPhones = (d) => d.phones.filter((p) => !p.bad);
 function isClosed(d) {
-  return d.dnc || ["donated", "donated_elsewhere", "do_not_call", "exhausted", "nophone"].includes(d.status);
+  return d.dnc || ["donated", "donated_elsewhere", "do_not_call", "duplicate", "exhausted", "nophone"].includes(d.status);
 }
 const isDue = (d) => d.next !== null && d.next <= S.now;
 
@@ -428,7 +430,8 @@ function logCall(d, agentId, x) {
   S.calls.push({ id: S.seq++, donor: d.id, agent: agentId, batch: d.batch, outcome: o.code, phone: d.phones[x.phone]?.n, amount: x.amount || null,
     pay: x.pay || null, follow: x.follow || null, notes: x.notes || "", t: S.now, converted });
   if (converted) { d.kind = "donor"; d.convertedAt = S.now; }
-  d.attempts++; d.status = o.code; d.next = x.follow || null; d.last = S.now;
+  if (o.code !== "duplicate") d.attempts++;
+  d.status = o.code; d.next = x.follow || null; d.last = S.now;
   if (o.group === "ans") d.tries = 0;
   if (o.group === "none") {
     d.tries++;
@@ -445,6 +448,7 @@ function logCall(d, agentId, x) {
   }
   if (o.code === "donated") { d.total += x.amount; d.pledge = null; d.pledgeDue = null; }
   if (o.code === "pledged") { d.pledge = x.amount; d.pledgeDue = x.follow; }
+  if ((o.code === "will_call" || o.code === "send_info") && !x.follow) d.next = dayStart(S.now) + D + S.settings.dayStart * H;
   if (o.code === "do_not_call") d.dnc = true;
   if (isClosed(d)) d.next = null;
   return converted;
@@ -549,13 +553,13 @@ function seed() {
   S.now = save;
   const d0 = dayStart(save), at = (h, m) => d0 + h * H + m * MIN;
   S.shifts[shiftKey(100, d0)] = { start: at(10, 2), end: null, pauses: [{ r: "break", from: at(10, 50), to: at(11, 5) }] };
-  S.shifts[shiftKey(101, d0)] = { start: at(10, 25), end: null, pauses: [{ r: "wc", from: at(10, 55), to: at(11, 1) }] };
-  S.shifts[shiftKey(103, d0)] = { start: at(10, 0), end: null, pauses: [{ r: "wc", from: at(10, 30), to: at(10, 36) }, { r: "break", from: at(10, 58), to: null }] };
+  S.shifts[shiftKey(101, d0)] = { start: at(10, 25), end: null, pauses: [{ r: "break", from: at(10, 55), to: at(11, 1) }] };
+  S.shifts[shiftKey(103, d0)] = { start: at(10, 0), end: null, pauses: [{ r: "break", from: at(10, 30), to: at(10, 36) }, { r: "break", from: at(10, 58), to: null }] };
 }
 
 /* ================= navigation ================= */
-const NAV_M = [["home", "الرئيسية", "home"], ["batches", "ملفات الداتا", "files"], ["donors", "قاعدة المتبرعين", "heart"], ["team", "الايجنتس", "team"], ["attendance", "الحضور والوقفات", "clock"], ["follow", "المتابعات", "bell"], ["reports", "التقارير", "chart"], ["settings", "الإعدادات", "gear"]];
-const NAV_A = [["today", "مكالمات النهارده", "list"], ["c-sheet", "شغل الشيت", "files"], ["c-pledge", "تحصيل الوعود", "heart"], ["c-callback", "معاودة الاتصال", "clock"], ["c-followup", "متابعة المهتمين", "bell"], ["mine", "أدائي", "chart"]];
+const NAV_M = [["home", "الرئيسية", "home"], ["batches", "ملفات الداتا", "files"], ["donors", "قاعدة المتبرعين", "heart"], ["team", "الايجنتس", "team"], ["attendance", "الحضور والبريك", "clock"], ["follow", "المتابعات", "bell"], ["reports", "التقارير", "chart"], ["settings", "الإعدادات", "gear"]];
+const NAV_A = [["today", "مكالمات النهارده", "list"], ["c-sheet", "شغل الشيت", "files"], ["c-pledge", "تحصيل الوعود", "heart"], ["c-callback", "معاودة الاتصال", "clock"], ["mine", "أدائي", "chart"]];
 function go(view, param = null) { S.view = view; S.param = param; render(); window.scrollTo(0, 0); }
 
 function render() {
@@ -608,7 +612,8 @@ function bindSeg(id, cb) { $$(`#${id} button`).forEach((b) => (b.onclick = () =>
 const CLS = { success: "ok", positive: "", pending: "info", unreachable: "warn", negative: "bad", invalid: "bad" };
 
 function stats(range, { agent, batch } = {}) {
-  const cs = S.calls.filter((c) => c.t >= range[0] && c.t < range[1] && (!agent || c.agent === agent) && (!batch || c.batch === batch));
+  const inRange = S.calls.filter((c) => c.t >= range[0] && c.t < range[1] && (!agent || c.agent === agent) && (!batch || c.batch === batch));
+  const cs = inRange.filter((c) => c.outcome !== "duplicate"), dups = inRange.length - cs.length;
   const by = (code) => cs.filter((c) => c.outcome === code);
   const answered = cs.filter((c) => OC[c.outcome].group === "ans");
   const donated = by("donated"), pledged = by("pledged");
@@ -623,7 +628,7 @@ function stats(range, { agent, batch } = {}) {
     refused: by("donated_elsewhere").length + by("do_not_call").length,
     badNum: by("wrong_number").length + by("not_in_service").length,
     conv: pct(new Set(donated.map((c) => c.donor)).size, answeredDonors.size),
-    converted: cs.filter((c) => c.converted).length,
+    converted: cs.filter((c) => c.converted).length, dups, all: inRange,
   };
 }
 
@@ -1058,7 +1063,7 @@ async function exportRows(title, donors) {
 }
 
 /* ================= attendance: shifts, pauses, alarms ================= */
-const REASONS = { break: "بريك", wc: "الحمام" };
+const REASONS = { break: "بريك" };
 const dur = (ms) => { const m = Math.max(0, Math.round(ms / MIN)), h = Math.floor(m / 60); return h ? `${n(h)} س ${n(m % 60)} د` : `${n(m)} د`; };
 const schedOf = (id) => S.settings.sched[id] || { start: 10, end: 18 };
 const shiftKey = (id, day = dayStart(S.now)) => `${id}:${day}`;
@@ -1080,7 +1085,7 @@ function alarmsOf(id) {
   if (sh && sh.start > startAt + 10 * MIN) out.push({ lvl: "info", t: `${a.name} بدأ متأخر ${dur(sh.start - startAt)}` });
   const op = openPause(sh);
   if (op && S.now - op.from > cfg.single * MIN) out.push({ lvl: "bad", t: `${a.name} في ${REASONS[op.r]} بقاله ${dur(S.now - op.from)} — المسموح للوقفة الواحدة ${n(cfg.single)} د` });
-  for (const r of ["break", "wc"]) { const used = pauseUsed(sh, r); if (used > cfg[r] * MIN) out.push({ lvl: "bad", t: `${a.name} تخطى وقت ${REASONS[r]} اليومي: ${dur(used)} من ${n(cfg[r])} د` }); }
+  for (const r of ["break"]) { const used = pauseUsed(sh, r); if (used > cfg[r] * MIN) out.push({ lvl: "bad", t: `${a.name} تخطى وقت ${REASONS[r]} اليومي: ${dur(used)} من ${n(cfg[r])} د` }); }
   return out;
 }
 const allAlarms = () => S.agents.flatMap((a) => alarmsOf(a.id).map((x) => ({ ...x, id: a.id })));
@@ -1089,9 +1094,9 @@ function makeShift(id, day, r, opts = {}) {
   const sc = schedOf(id), st0 = day + sc.start * H + Math.floor(r() * (opts.late ?? 12)) * MIN;
   const brk = day + Math.round((sc.start + sc.end) / 2) * H + Math.floor(r() * 30) * MIN;
   S.shifts[shiftKey(id, day)] = { start: st0, end: day + sc.end * H + Math.floor(r() * 10) * MIN, pauses: [
-    { r: "wc", from: st0 + 2 * H, to: st0 + 2 * H + (4 + Math.floor(r() * 7)) * MIN },
+    { r: "break", from: st0 + 2 * H, to: st0 + 2 * H + (4 + Math.floor(r() * 7)) * MIN },
     { r: "break", from: brk, to: brk + (18 + Math.floor(r() * 18)) * MIN },
-    { r: "wc", from: brk + 3 * H, to: brk + 3 * H + (3 + Math.floor(r() * 6)) * MIN }] };
+    { r: "break", from: brk + 3 * H, to: brk + 3 * H + (3 + Math.floor(r() * 6)) * MIN }] };
 }
 
 /* manager alarm bar + beep */
@@ -1108,7 +1113,7 @@ function updateAlarm() {
   const key = bad.map((x) => x.t.split(" بقاله")[0]).join("|");
   if (!bad.length || S.ui.alarmAck === key) { bar.hidden = true; lastBad = bad.length; return; }
   bar.hidden = false;
-  bar.innerHTML = `<span class="ic">${ic("alert")}</span><div class="tx"><b>${n(bad.length)} تنبيه وقفات</b><span>${bad.map((x) => esc(x.t)).join(" · ")}</span></div>
+  bar.innerHTML = `<span class="ic">${ic("alert")}</span><div class="tx"><b>${n(bad.length)} تنبيه بريك</b><span>${bad.map((x) => esc(x.t)).join(" · ")}</span></div>
     <button class="btn sm" id="alGo">عرض الحضور</button><button class="btn sm" id="alAck">تمام، شفته</button>`;
   $("#alGo").onclick = () => go("attendance");
   $("#alAck").onclick = () => { S.ui.alarmAck = key; bar.hidden = true; };
@@ -1123,17 +1128,17 @@ V.attendance = () => {
   const prChip = (pr, sh) => pr === "working" ? '<span class="st success">شغال</span>' : pr === "paused" ? `<span class="st unreachable">${REASONS[openPause(sh).r]} · <span data-since="${openPause(sh).from}">${dur(S.now - openPause(sh).from)}</span></span>` : pr === "done" ? '<span class="st">خلّص يومه</span>' : '<span class="st">لسه مبدأش</span>';
   const useCell = (sh, r) => { const u = pauseUsed(sh, r), lim = cfg[r] * MIN; return `<div class="mrow"><div class="meter"><i class="${u > lim ? "bad" : u > lim * .8 ? "warn" : "info"}" style="width:${Math.min(100, (100 * u) / lim)}%"></i></div><span class="small num" style="${u > lim ? "color:var(--bad);font-weight:600" : ""}">${dur(u)} / ${n(cfg[r])} د</span></div>`; };
   $("#main").innerHTML = `
-    <div class="page-head"><div class="t"><h1>الحضور والوقفات</h1><span class="muted">النهارده ${dateS(S.now)} · المسموح: بريك ${n(cfg.break)} د، الحمام ${n(cfg.wc)} د في اليوم، والوقفة الواحدة ${n(cfg.single)} د.</span></div>
+    <div class="page-head"><div class="t"><h1>الحضور والبريك</h1><span class="muted">النهارده ${dateS(S.now)} · المسموح: بريك ${n(cfg.break)} د في اليوم، والوقفة الواحدة ${n(cfg.single)} د.</span></div>
       <div class="actions"><button class="btn" id="toSet">${ic("gear")}تعديل المواعيد والمسموح</button></div></div>
-    <section class="card"><div class="tw"><table><thead><tr><th>الايجنت</th><th>مواعيده</th><th>دلوقتي</th><th>بدأ</th><th>اشتغل من يومه</th><th>البريك</th><th>الحمام</th><th>تنبيهات</th></tr></thead><tbody>
+    <section class="card"><div class="tw"><table><thead><tr><th>الايجنت</th><th>مواعيده</th><th>دلوقتي</th><th>بدأ</th><th>اشتغل من يومه</th><th>البريك</th><th>تنبيهات</th></tr></thead><tbody>
       ${rows.map(({ a, sc, sh, pr, al }) => { const sched = (sc.end - sc.start) * H, w = workedMs(sh); return `<tr>
         <td><b>${esc(a.name)}</b></td><td class="small">${hourLabel(sc.start)} – ${hourLabel(sc.end)}<span class="sub">${n(sc.end - sc.start)} ساعات</span></td>
         <td>${prChip(pr, sh)}</td><td class="small">${sh ? timeS(sh.start) : "—"}${sh?.end ? `<span class="sub">خلّص ${timeS(sh.end)}</span>` : ""}</td>
         <td><div class="mrow"><div class="meter"><i class="ok" style="width:${Math.min(100, (100 * w) / sched)}%"></i></div><span class="small num">${dur(w)} من ${n(sc.end - sc.start)} س</span></div></td>
-        <td>${useCell(sh, "break")}</td><td>${useCell(sh, "wc")}</td>
+        <td>${useCell(sh, "break")}</td>
         <td class="small">${al.length ? al.map((x) => `<span class="st ${x.lvl === "bad" ? "negative" : x.lvl === "warn" ? "unreachable" : "pending"}" style="white-space:normal">${esc(x.t.replace(a.name + " ", ""))}</span>`).join("<br>") : '<span class="muted">—</span>'}</td></tr>`; }).join("")}
     </tbody></table></div></section>
-    <section class="card"><div class="card-h"><h2>وقفات النهارده</h2><span class="muted small">${n(log.length)} وقفة</span></div>
+    <section class="card"><div class="card-h"><h2>بريكات النهارده</h2><span class="muted small">${n(log.length)} وقفة</span></div>
       ${log.length ? `<div class="tw"><table><thead><tr><th>الايجنت</th><th>السبب</th><th>من</th><th>لحد</th><th class="num">المدة</th></tr></thead><tbody>
       ${log.map(({ a, p }) => { const d0 = (p.to || S.now) - p.from, over = d0 > cfg.single * MIN; return `<tr><td>${esc(a.name)}</td><td>${REASONS[p.r]}</td><td class="small">${timeS(p.from)}</td><td class="small">${p.to ? timeS(p.to) : '<span class="st unreachable">لسه واقف</span>'}</td>
         <td class="num" style="${over ? "color:var(--bad);font-weight:600" : ""}">${dur(d0)}</td></tr>`; }).join("")}</tbody></table></div>` : empty("مفيش وقفات النهارده", "أول ما ايجنت يوقف شغل هتظهر هنا.")}</section>`;
@@ -1147,9 +1152,9 @@ function agentBar() {
   const chip = pr === "working" ? '<span class="st success">شغال</span>' : pr === "paused" ? `<span class="st unreachable">واقف: ${REASONS[openPause(sh).r]}</span>` : pr === "done" ? '<span class="st">خلّصت يومك</span>' : '<span class="st">لسه مبدأتش</span>';
   return `<div class="pbar">${chip}<span class="small">مواعيدك ${hourLabel(sc.start)} – ${hourLabel(sc.end)}</span>
     ${sh ? `<span class="small">اشتغلت <b>${dur(w)}</b> من ${n(sc.end - sc.start)} س</span><div class="meter" style="width:120px"><i class="ok" style="width:${Math.min(100, (100 * w) / sched)}%"></i></div>
-      <span class="small muted">بريك ${dur(pauseUsed(sh, "break"))}/${n(cfg.break)}د · حمام ${dur(pauseUsed(sh, "wc"))}/${n(cfg.wc)}د</span>` : ""}
+      <span class="small muted">بريك ${dur(pauseUsed(sh, "break"))} من ${n(cfg.break)} د</span>` : ""}
     <span style="flex:1"></span>
-    ${pr === "working" ? `<button class="btn sm" id="pPause">وقف مؤقت</button><button class="btn sm ghost" id="pEnd">إنهاء اليوم</button>` : ""}</div>`;
+    ${pr === "working" ? `<button class="btn sm" id="pPause">بريك</button><button class="btn sm ghost" id="pEnd">إنهاء اليوم</button>` : ""}</div>`;
 }
 function agentGate() {
   const id = S.role, sh = shiftOf(id), pr = presence(id), cfg = S.settings.pause, sc = schedOf(id);
@@ -1172,12 +1177,9 @@ function bindAgentPresence() {
   b("#pEnd", () => confirmDlg({ title: "إنهاء اليوم؟", body: `اشتغلت ${dur(workedMs(shiftOf(id)))} النهارده. بعد الإنهاء مش هتقدر تعمل مكالمات لحد ما ترجع.`, action: "إنهاء اليوم", onOk: () => { shiftOf(id).end = S.now; render(); } }));
   b("#pPause", () => {
     const sh = shiftOf(id), cfg = S.settings.pause;
-    openDialog(`<div class="dlg">${dlgHead("وقف مؤقت", "اختار السبب. الوقت بيتحسب لحد ما تدوس «رجعت الشغل».")}
-      <div class="dlg-b"><div class="types" role="radiogroup">${Object.entries(REASONS).map(([k, l], i) => { const left = Math.max(0, cfg[k] * MIN - pauseUsed(sh, k)); return `
-        <label class="type"><input type="radio" name="why" value="${k}" ${i === 0 ? "checked" : ""}><span><b>${l}</b><small>فاضلك النهارده ${dur(left)} من ${n(cfg[k])} د</small></span></label>`; }).join("")}</div></div>
-      <div class="dlg-f"><button class="btn primary" id="whyOk">ابدأ الوقفة</button><button class="btn" data-close>إلغاء</button></div></div>`, { onOpen: (dl) => {
-      $("#whyOk", dl).onclick = () => { const r = $('input[name="why"]:checked', dl).value; sh.pauses.push({ r, from: S.now, to: null }); dl.close(); render(); };
-    } });
+    const left = Math.max(0, cfg.break * MIN - pauseUsed(sh, "break"));
+    confirmDlg({ title: "تبدأ بريك؟", body: `فاضلك من البريك النهارده ${dur(left)} من ${n(cfg.break)} د، والوقفة الواحدة متعديش ${n(cfg.single)} د. الوقت بيتحسب لحد ما تدوس «رجعت الشغل».`,
+      action: "ابدأ البريك", onOk: () => { sh.pauses.push({ r: "break", from: S.now, to: null }); render(); } });
   });
 }
 
@@ -1212,10 +1214,9 @@ V.settings = () => {
           <td><select class="input" data-sch="${a.id}" data-k="start" aria-label="بداية مواعيد ${esc(a.name)}">${hourOpts(sc.start)}</select></td>
           <td><select class="input" data-sch="${a.id}" data-k="end" aria-label="نهاية مواعيد ${esc(a.name)}">${hourOpts(sc.end)}</select></td>
           <td class="num" data-hrs="${a.id}">${n(sc.end - sc.start)}</td></tr>`; }).join("")}</tbody></table></div>
-      <div class="card-h" style="border-top:1px solid var(--line)"><h2>الوقفات المسموحة في اليوم</h2><span class="muted small">لو الايجنت عدّاها بيوصلك تنبيه بصوت</span></div>
+      <div class="card-h" style="border-top:1px solid var(--line)"><h2>البريك المسموح في اليوم</h2><span class="muted small">لو الايجنت عدّاها بيوصلك تنبيه بصوت</span></div>
       <div class="card-b"><div class="form-row">
         <label class="field"><span>البريك</span><div class="suffix"><input class="input num" type="number" min="0" max="240" id="pBreak" value="${f.pause.break}"><span>دقيقة في اليوم</span></div></label>
-        <label class="field"><span>الحمام</span><div class="suffix"><input class="input num" type="number" min="0" max="120" id="pWc" value="${f.pause.wc}"><span>دقيقة في اليوم</span></div></label>
         <label class="field"><span>أقصى مدة للوقفة الواحدة</span><div class="suffix"><input class="input num" type="number" min="1" max="120" id="pSingle" value="${f.pause.single}"><span>دقيقة</span></div>
           <span class="hint">أي وقفة أطول من كده بتطلّع تنبيه وهي لسه شغالة.</span></label>
       </div>
@@ -1230,7 +1231,7 @@ V.settings = () => {
     f.dayStart = Number($("#dayStart").value); f.dayEnd = Number($("#dayEnd").value);
     $$("[data-sch]").forEach((el) => { const id = el.dataset.sch; f.sched[id] = f.sched[id] || { start: 10, end: 18 }; f.sched[id][el.dataset.k] = Number(el.value); });
     Object.entries(f.sched).forEach(([id, sc]) => { const c = $(`[data-hrs="${id}"]`); if (c) c.textContent = n(sc.end - sc.start); });
-    f.pause = { break: Number($("#pBreak").value), wc: Number($("#pWc").value), single: Number($("#pSingle").value) };
+    f.pause = { break: Number($("#pBreak").value), single: Number($("#pSingle").value) };
   };
   const problem = () => {
     if (Object.values(f.retry).some((h) => !(Number.isInteger(h) && h >= 1 && h <= 72))) return "ساعات إعادة المحاولة لازم تكون رقم صحيح من ١ لـ ٧٢.";
@@ -1239,7 +1240,7 @@ V.settings = () => {
     if (f.dayEnd <= f.dayStart) return "آخر مواعيد الشغل لازم يكون بعد أولها.";
     const bad = S.agents.find((a) => f.sched[a.id] && f.sched[a.id].end <= f.sched[a.id].start);
     if (bad) return `مواعيد ${bad.name}: النهاية لازم تكون بعد البداية.`;
-    if (![f.pause.break, f.pause.wc].every((x) => Number.isInteger(x) && x >= 0 && x <= 240) || !(Number.isInteger(f.pause.single) && f.pause.single >= 1 && f.pause.single <= 120)) return "دقايق الوقفات لازم تكون أرقام صحيحة (البريك والحمام من ٠، والوقفة الواحدة من ١ لـ ١٢٠).";
+    if (!(Number.isInteger(f.pause.break) && f.pause.break >= 0 && f.pause.break <= 240) || !(Number.isInteger(f.pause.single) && f.pause.single >= 1 && f.pause.single <= 120)) return "دقايق الوقفات لازم تكون أرقام صحيحة (البريك من ٠ لـ ٢٤٠، والوقفة الواحدة من ١ لـ ١٢٠).";
     return "";
   };
   const preview = () => {
@@ -1276,7 +1277,7 @@ V.team = () => {
     const src = S.batches.map((b) => ({ b, k: mine.filter((d) => d.batch === b.id).length, left: mine.filter((d) => d.batch === b.id && !d.attempts && !isClosed(d)).length })).filter((x) => x.k);
     const retry = mine.filter((d) => !isClosed(d) && (OC[d.status]?.group === "none" || OC[d.status]?.group === "num"));
     return { a, s, today, total: mine.length, worked: mine.filter((d) => d.attempts).length, left: mine.filter((d) => !d.attempts && !isClosed(d)).length, open: openOf(a.id).length, src,
-      retryDue: retry.filter((d) => d.next === null || d.next <= S.now).length, retryWait: retry.filter((d) => d.next !== null && d.next > S.now).length };
+      dups: mine.filter((d) => d.status === "duplicate").length, retryDue: retry.filter((d) => d.next === null || d.next <= S.now).length, retryWait: retry.filter((d) => d.next !== null && d.next > S.now).length };
   });
   const sum = (f) => rows.reduce((x, r) => x + f(r), 0);
   const unassigned = S.batches.map((b) => ({ b, left: S.donors.filter((d) => d.batch === b.id && !d.agent && !isClosed(d)).length })).filter((x) => x.left);
@@ -1286,7 +1287,7 @@ V.team = () => {
     ${unassigned.length ? `<p class="note warn">فيه ${n(unassigned.reduce((x, u) => x + u.left, 0))} اسم في ${n(unassigned.length)} شيت لسه متوزعوش. استخدم «إسناد شيت» في صف الايجنت.</p>` : ""}
     <section class="card"><div class="tw"><table class="team"><thead><tr>
       <th>الايجنت</th><th class="num">عدد التبرعات<span class="sub">${plabel}</span></th><th class="num">إجمالي قيم التبرع<span class="sub">${plabel}</span></th>
-      <th class="num">إجمالي المتبرعين<span class="sub">معاه</span></th><th class="num">اتعمل عليهم<span class="sub">اتصل بيهم</span></th><th class="num">لسه متعملش عليهم</th><th class="num">إعادة محاولة<span class="sub">مستحقة / مستنية</span></th>
+      <th class="num">إجمالي المتبرعين<span class="sub">معاه</span></th><th class="num">اتعمل عليهم<span class="sub">اتصل بيهم</span></th><th class="num">لسه متعملش عليهم</th><th class="num">إعادة محاولة<span class="sub">مستحقة / مستنية</span></th><th class="num">مكرر</th>
       <th class="num">عدد المكالمات<span class="sub">${plabel}</span></th><th>تارجت اليوم<span class="sub">مكالمات</span></th><th>مصدر الداتا</th><th><span class="sr">إجراءات</span></th></tr></thead><tbody>
     ${rows.map((r) => `<tr>
       <td><b>${esc(r.a.name)}</b><span class="sub">${r.a.active ? '<span class="st success">نشط</span>' : '<span class="st">موقوف</span>'}</span></td>
@@ -1296,6 +1297,7 @@ V.team = () => {
       <td class="num">${n(r.worked)}<span class="sub">${pctS(pct(r.worked, r.total))}</span></td>
       <td class="num" style="${r.left ? "color:var(--warn);font-weight:600" : ""}">${n(r.left)}</td>
       <td class="num" title="مستحقة دلوقتي وبتظهر للايجنت جوه شغل الشيت / مستنية معادها">${n(r.retryDue)} / ${n(r.retryWait)}</td>
+      <td class="num">${n(r.dups)}</td>
       <td class="num">${n(r.s.calls)}</td>
       <td><div class="tgt"><input class="input num" type="number" min="1" max="500" value="${r.a.target}" data-tgt="${r.a.id}" aria-label="تارجت اليوم لـ ${esc(r.a.name)}">
         <div class="mrow"><div class="meter" role="img" aria-label="${n(r.today.calls)} من ${n(r.a.target)}"><i class="${r.today.calls >= r.a.target ? "ok" : ""}" style="width:${Math.min(100, (100 * r.today.calls) / r.a.target)}%"></i></div><span class="small num">${n(r.today.calls)}/${n(r.a.target)}</span></div></div></td>
@@ -1304,7 +1306,7 @@ V.team = () => {
       <td><div class="acts"><button class="btn sm" data-tr="${r.a.id}" ${r.open ? "" : "disabled"} title="نقل المتبرعين المفتوحين لايجنت تاني">نقل الداتا</button>
         <button class="btn sm ${r.a.active ? "danger" : ""}" data-tg="${r.a.id}">${r.a.active ? "إيقاف" : "تفعيل"}</button></div></td></tr>`).join("")}
     </tbody><tfoot><tr><td><b>الإجمالي</b></td><td class="num"><b>${n(sum((r) => r.s.donated))}</b></td><td class="num"><b>${money(sum((r) => r.s.amount))}</b></td>
-      <td class="num"><b>${n(sum((r) => r.total))}</b></td><td class="num"><b>${n(sum((r) => r.worked))}</b></td><td class="num"><b>${n(sum((r) => r.left))}</b></td><td class="num"><b>${n(sum((r) => r.retryDue))} / ${n(sum((r) => r.retryWait))}</b></td>
+      <td class="num"><b>${n(sum((r) => r.total))}</b></td><td class="num"><b>${n(sum((r) => r.worked))}</b></td><td class="num"><b>${n(sum((r) => r.left))}</b></td><td class="num"><b>${n(sum((r) => r.retryDue))} / ${n(sum((r) => r.retryWait))}</b></td><td class="num"><b>${n(sum((r) => r.dups))}</b></td>
       <td class="num"><b>${n(sum((r) => r.s.calls))}</b></td><td class="num small">${n(sum((r) => r.today.calls))}/${n(sum((r) => r.a.target))}</td><td></td><td></td></tr></tfoot></table></div></section>
     <p class="muted small">«عدد التبرعات» و«إجمالي قيم التبرع» و«عدد المكالمات» بتتغير حسب الفترة اللي فوق. الباقي لحظي. التارجت بيتحفظ أول ما تغيّره.</p>`;
   bindSeg("tpSeg", (v) => { ui.p = v; render(); });
@@ -1398,7 +1400,7 @@ V.reports = () => {
   const tot = stats(range, f);
   const agents = S.agents.filter((a) => !f.agent || a.id === f.agent).map((a) => ({ a, s: stats(range, { ...f, agent: a.id }), overdue: queueOf(a.id).due.length }));
   const batches = S.batches.filter((b) => !f.batch || b.id === f.batch).map((b) => ({ b, s: stats(range, { ...f, batch: b.id }), size: S.donors.filter((d) => d.batch === b.id).length }));
-  const counts = OUTCOMES.map((o) => ({ o, k: tot.cs.filter((c) => c.outcome === o.code).length }));
+  const counts = OUTCOMES.map((o) => ({ o, k: tot.all.filter((c) => c.outcome === o.code).length }));
   const maxC = Math.max(1, ...counts.map((x) => x.k));
   const t0 = dayStart(S.now);
   const days = Array.from({ length: 7 }, (_, i) => t0 - (6 - i) * D).map((d0) => { const s = stats([d0, d0 + D], f); return { d0, calls: s.calls, amount: s.amount }; });
@@ -1416,14 +1418,14 @@ V.reports = () => {
       <div class="stat"><span>نسبة التحويل</span><b>${pctS(tot.conv)}</b><small>من اللي ردوا اتبرعوا</small></div>
       <div class="stat"><span>محتملين اتحوّلوا لمتبرعين</span><b style="color:var(--ok)">${n(tot.converted)}</b><small>اتنقلوا لقاعدة المتبرعين</small></div>
     </div>
-    <section class="card"><div class="card-h"><h2>أداء الايجنتس</h2></div><div class="tw"><table><thead><tr><th>الايجنت</th><th class="num">مكالمات</th><th class="num">رد</th><th class="num">اتبرع</th><th class="num">وعود</th><th class="num">هيكلمنا</th><th class="num">معاودة / تفاصيل واتس</th><th class="num">مردّش / مغلق</th><th class="num">رفض</th><th class="num">أرقام غلط</th><th class="num">التحويل</th><th class="num">متأخر عليه</th></tr></thead><tbody>
+    <section class="card"><div class="card-h"><h2>أداء الايجنتس</h2></div><div class="tw"><table><thead><tr><th>الايجنت</th><th class="num">مكالمات</th><th class="num">رد</th><th class="num">اتبرع</th><th class="num">وعود</th><th class="num">هيكلمنا</th><th class="num">معاودة / تفاصيل واتس</th><th class="num">مردّش / مغلق</th><th class="num">غير مهتم</th><th class="num">أرقام غلط</th><th class="num">مكرر</th><th class="num">التحويل</th><th class="num">متأخر عليه</th></tr></thead><tbody>
       ${agents.map(({ a, s, overdue }) => `<tr><td><b>${esc(a.name)}</b></td><td class="num">${n(s.calls)}</td><td class="num">${pctS(s.ansRate)}</td>
         <td class="num">${n(s.donated)}<span class="sub">${money(s.amount)}</span></td><td class="num">${n(s.pledged)}<span class="sub">${money(s.pledgedAmt)}</span></td>
-        <td class="num">${n(s.interested)}</td><td class="num">${n(s.followReq)}</td><td class="num">${n(s.noAns)} / ${n(s.off)}</td><td class="num">${n(s.refused)}</td><td class="num">${n(s.badNum)}</td>
+        <td class="num">${n(s.interested)}</td><td class="num">${n(s.followReq)}</td><td class="num">${n(s.noAns)} / ${n(s.off)}</td><td class="num">${n(s.refused)}</td><td class="num">${n(s.badNum)}</td><td class="num">${n(s.dups)}</td>
         <td class="num"><b>${pctS(s.conv)}</b></td><td class="num" style="${overdue ? "color:var(--bad);font-weight:600" : ""}">${n(overdue)}</td></tr>`).join("")}</tbody></table></div></section>
     <div class="grid">
       <section class="card"><div class="card-h"><h2>نتايج المكالمات</h2><span class="muted small">${n(tot.calls)} مكالمة</span></div><div class="card-b bars">
-        ${GROUPS.map(([g, gl]) => `<div class="bar-group">${gl}</div>${counts.filter((x) => x.o.group === g).map(({ o, k }) => `<div class="bar"><span>${esc(o.label)}</span><div class="meter"><i class="${CLS[o.cat]}" style="width:${(100 * k) / maxC}%"></i></div><span class="v">${n(k)} · ${pctS(pct(k, tot.calls))}</span></div>`).join("")}`).join("")}
+        ${REPORT_GROUPS.map(([g, gl]) => `<div class="bar-group">${gl}</div>${counts.filter((x) => x.o.group === g).map(({ o, k }) => `<div class="bar"><span>${esc(o.label)}</span><div class="meter"><i class="${CLS[o.cat]}" style="width:${(100 * k) / maxC}%"></i></div><span class="v">${n(k)} · ${pctS(pct(k, tot.calls))}</span></div>`).join("")}`).join("")}
       </div></section>
       <section class="card"><div class="card-h"><h2>آخر ٧ أيام</h2></div><div class="tw"><table><thead><tr><th>اليوم</th><th>المكالمات</th><th class="num">التبرعات</th></tr></thead><tbody>
         ${days.map((d) => `<tr><td>${new Date(d.d0).toLocaleDateString("ar-EG", { weekday: "long", day: "numeric", month: "numeric" })}</td>
@@ -1438,8 +1440,8 @@ V.reports = () => {
   const c = $("#clr"); if (c) c.onclick = () => { ui.agent = ""; ui.batch = ""; render(); };
   $$("tr[data-b]").forEach((tr) => (tr.onclick = () => go("batch", Number(tr.dataset.b))));
   $("#copy").onclick = () => {
-    const tsv = ["الايجنت\tمكالمات\tنسبة الرد\tاتبرع\tمبلغ التبرعات\tوعود\tمبلغ الوعود\tهيكلمنا\tمعاودة/تفاصيل واتس\tمردش\tمغلق\tرفض\tأرقام غلط\tالتحويل",
-      ...agents.map(({ a, s }) => [a.name, s.calls, s.ansRate, s.donated, s.amount, s.pledged, s.pledgedAmt, s.interested, s.followReq, s.noAns, s.off, s.refused, s.badNum, s.conv].join("\t"))].join("\n");
+    const tsv = ["الايجنت\tمكالمات\tنسبة الرد\tاتبرع\tمبلغ التبرعات\tوعود\tمبلغ الوعود\tهيكلمنا\tمعاودة/تفاصيل واتس\tمردش\tمغلق\tغير مهتم\tأرقام غلط\tمكرر\tالتحويل",
+      ...agents.map(({ a, s }) => [a.name, s.calls, s.ansRate, s.donated, s.amount, s.pledged, s.pledgedAmt, s.interested, s.followReq, s.noAns, s.off, s.refused, s.badNum, s.dups, s.conv].join("\t"))].join("\n");
     const fallback = () => openDialog(`<div class="dlg">${dlgHead("انسخ التقرير")}<div class="dlg-b"><p class="muted small">حدد النص وانسخه (Ctrl+C) والصقه في إكسيل.</p><textarea class="input" rows="8" id="tsv" readonly>${esc(tsv)}</textarea></div></div>`, { onOpen: (d) => $("#tsv", d).select() });
     if (navigator.clipboard?.writeText) navigator.clipboard.writeText(tsv).then(() => toast("اتنسخ التقرير. الصقه في إكسيل."), fallback); else fallback();
   };
@@ -1451,7 +1453,6 @@ const CATS = [
   { k: "sheet", label: "شغل الشيت", icon: "files", hint: "أسماء الشيتات اللي معاك." },
   { k: "pledge", label: "تحصيل الوعود", icon: "heart", hint: "ناس وعدت تتبرع ومعادها النهارده أو فات." },
   { k: "callback", label: "معاودة الاتصال", icon: "clock", hint: "ناس طلبت تكلمهم تاني في معاد النهارده." },
-  { k: "followup", label: "متابعة المهتمين", icon: "bell", hint: "ناس قالت هتكلمنا أو طلبت تفاصيل واتس." },
 ];
 function catOf(d) {
   if (isClosed(d) || d.dnc) return null;
@@ -1459,7 +1460,7 @@ function catOf(d) {
   if (d.next !== null && d.next > S.now) return null;            // later — not today's work yet
   if (d.status === "pledged") return "pledge";
   if (d.status === "callback") return "callback";
-  if (d.status === "will_call" || d.status === "send_info") return "followup";
+  if (d.status === "will_call" || d.status === "send_info") return "sheet";
   if (OC[d.status]?.group === "none" || OC[d.status]?.group === "num") return "sheet";   // retries come back inside the sheet work
   return null;
 }
@@ -1550,6 +1551,7 @@ function callCard(d, cat, left) {
   </div>
   <div class="sticky-f"><button class="btn primary" id="saveNext" ${o ? "" : "disabled"}>${left > 1 ? "حفظ والمكالمة اللي بعدها" : "حفظ"}</button>
     ${left > 1 ? `<button class="btn" id="skip" title="هيرجعلك في آخر النوع ده">تخطّي دلوقتي</button>` : ""}
+    <button class="btn danger" id="dupBtn" title="المتبرع ده متكرر في الداتا">مكرر</button>
     <span class="muted small">${o ? "" : "اختار نتيجة المكالمة الأول"}</span></div>`;
   const keep = () => { f.notes = $("#notes").value; if ($("#amt")) f.amount = $("#amt").value; if ($("#pay")) f.pay = $("#pay").value; const ph = $('input[name="ph"]:checked'); if (ph) f.phone = Number(ph.value); };
   const redraw = () => callCard(d, cat, left);
@@ -1557,6 +1559,9 @@ function callCard(d, cat, left) {
   $$("[data-fu]", box).forEach((b) => (b.onclick = () => { keep(); f.follow = f.follow === b.dataset.fu && OC[f.outcome].follow !== "req" ? "" : b.dataset.fu; redraw(); }));
   $$('input[name="ph"]', box).forEach((r) => (r.onchange = keep));
   $$("[data-cp]", box).forEach((b) => (b.onclick = () => { if (navigator.clipboard?.writeText) navigator.clipboard.writeText(b.dataset.cp).then(() => toast("اتنسخ الرقم"), () => {}); }));
+  $("#dupBtn").onclick = () => confirmDlg({ title: `${d.name} مكرر؟`, body: "هيخرج من شغلك ويتسجل عند المدير تحت بند «مكرر». مش هيتحسب كمكالمة.", action: "أيوه مكرر", danger: true, onOk: () => {
+    keep(); logCall(d, S.role, { outcome: "duplicate", phone: f.phone, notes: f.notes }); S.calls[S.calls.length - 1].cat = cat;
+    toast(`اتعلّم ${d.name} مكرر`); S.ui.form = null; S.ui.cur = null; render(); window.scrollTo(0, 0); } });
   const sk = $("#skip"); if (sk) sk.onclick = () => { S.ui.cat[cat].skip.push(d.id); S.ui.cur = null; S.ui.form = null; render(); };
   $("#saveNext").onclick = () => {
     keep();
