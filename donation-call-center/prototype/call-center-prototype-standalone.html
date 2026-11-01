@@ -147,6 +147,14 @@ td.chk, th.chk { width: 36px; padding-inline-end: 0; }
 .type span { display: flex; flex-direction: column; } .type small { color: var(--muted); font-size: 12.5px; }
 .type:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent); }
 .drop[aria-disabled="true"] { opacity: .5; pointer-events: none; }
+table.team th .sub { display: block; font-weight: 400; font-size: 11.5px; }
+table.team th, table.team td { padding: 10px 10px; } table.team th { white-space: normal; vertical-align: bottom; }
+table.team .acts { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+tfoot td { background: var(--surface-2); border-top: 1px solid var(--line-strong); border-bottom: 0; }
+.tgt { display: flex; flex-direction: column; gap: 4px; min-width: 120px; } .tgt .input { height: 30px; width: 80px; }
+.srcs { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
+.src { display: inline-flex; gap: 8px; justify-content: space-between; align-items: center; font-size: 12.5px; background: var(--neutral-soft); border-radius: 4px; padding: 2px 8px; max-width: 210px; }
+.src span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 4px; background: var(--neutral-soft); color: var(--fg-2); }
 
 /* meters */
@@ -1008,23 +1016,50 @@ async function exportRows(title, donors) {
 }
 
 V.team = () => {
+  const ui = S.ui.team || (S.ui.team = { p: "today" });
+  const range = periodRange(ui.p);
+  const plabel = PERIODS.find(([k]) => k === ui.p)[1];
   const rows = S.agents.map((a) => {
-    const open = openOf(a.id), q = queueOf(a.id);
-    return { a, open: open.length, fresh: q.fresh.length, due: q.due.length, today: stats(periodRange("today"), { agent: a.id }).calls,
-      batches: [...new Set(open.map((d) => d.batch))].map((id) => batchById(id).name) };
+    const mine = S.donors.filter((d) => d.agent === a.id);
+    const s = stats(range, { agent: a.id }), today = stats(periodRange("today"), { agent: a.id });
+    const src = S.batches.map((b) => ({ b, k: mine.filter((d) => d.batch === b.id).length, left: mine.filter((d) => d.batch === b.id && !d.attempts && !isClosed(d)).length })).filter((x) => x.k);
+    return { a, s, today, total: mine.length, worked: mine.filter((d) => d.attempts).length, left: mine.filter((d) => !d.attempts && !isClosed(d)).length, open: openOf(a.id).length, src };
   });
-  const maxOpen = Math.max(1, ...rows.map((r) => r.open));
+  const sum = (f) => rows.reduce((x, r) => x + f(r), 0);
+  const unassigned = S.batches.map((b) => ({ b, left: S.donors.filter((d) => d.batch === b.id && !d.agent && !isClosed(d)).length })).filter((x) => x.left);
   $("#main").innerHTML = `
-    <div class="page-head"><div class="t"><h1>الايجنتس</h1><span class="muted">حمل الشغل مع كل ايجنت، ونقل الداتا لو حد غايب أو ساب الشغل.</span></div></div>
-    <section class="card"><div class="tw"><table><thead><tr><th>الايجنت</th><th>الحالة</th><th>المتبرعين المفتوحين معاه</th><th class="num">جديد</th><th class="num">مستحق دلوقتي</th><th class="num">مكالمات النهارده</th><th>من داتا</th><th></th></tr></thead><tbody>
-    ${rows.map((r) => `<tr><td><b>${esc(r.a.name)}</b><span class="sub">الهدف ${n(r.a.target)} مكالمة في اليوم</span></td>
-      <td>${r.a.active ? '<span class="st success">نشط</span>' : '<span class="st">موقوف</span>'}</td>
-      <td><div class="mrow"><div class="meter"><i style="width:${(100 * r.open) / maxOpen}%"></i></div><span class="num small">${n(r.open)}</span></div></td>
-      <td class="num">${n(r.fresh)}</td><td class="num" style="${r.due ? "color:var(--bad);font-weight:600" : ""}">${n(r.due)}</td><td class="num">${n(r.today)}</td>
-      <td class="small">${r.batches.map(esc).join("، ") || '<span class="muted">—</span>'}</td>
-      <td><div class="actions"><button class="btn sm" data-tr="${r.a.id}" ${r.open ? "" : "disabled"}>${ic("share")}نقل الداتا</button>
-        <button class="btn sm ${r.a.active ? "danger" : ""}" data-tg="${r.a.id}">${r.a.active ? "إيقاف" : "تفعيل"}</button></div></td></tr>`).join("")}</tbody></table></div></section>
-    <p class="muted small">التوزيع بيتم من صفحة كل ملف داتا، علشان تعرف كل ايجنت استلم إيه ومن أنهي ملف.</p>`;
+    <div class="page-head"><div class="t"><h1>الايجنتس</h1><span class="muted">أداء كل ايجنت، الهدف اليومي، والشيتات اللي معاه.</span></div>
+      <div class="actions">${segHtml("tpSeg", PERIODS, ui.p)}</div></div>
+    ${unassigned.length ? `<p class="note warn">فيه ${n(unassigned.reduce((x, u) => x + u.left, 0))} اسم في ${n(unassigned.length)} شيت لسه متوزعوش. استخدم «إسناد شيت» في صف الايجنت.</p>` : ""}
+    <section class="card"><div class="tw"><table class="team"><thead><tr>
+      <th>الايجنت</th><th class="num">عدد التبرعات<span class="sub">${plabel}</span></th><th class="num">إجمالي قيم التبرع<span class="sub">${plabel}</span></th>
+      <th class="num">إجمالي المتبرعين<span class="sub">معاه</span></th><th class="num">اتعمل عليهم<span class="sub">اتصل بيهم</span></th><th class="num">لسه متعملش عليهم</th>
+      <th class="num">عدد المكالمات<span class="sub">${plabel}</span></th><th>تارجت اليوم<span class="sub">مكالمات</span></th><th>مصدر الداتا</th><th><span class="sr">إجراءات</span></th></tr></thead><tbody>
+    ${rows.map((r) => `<tr>
+      <td><b>${esc(r.a.name)}</b><span class="sub">${r.a.active ? '<span class="st success">نشط</span>' : '<span class="st">موقوف</span>'}</span></td>
+      <td class="num"><b>${n(r.s.donated)}</b></td>
+      <td class="num">${money(r.s.amount)}</td>
+      <td class="num">${n(r.total)}</td>
+      <td class="num">${n(r.worked)}<span class="sub">${pctS(pct(r.worked, r.total))}</span></td>
+      <td class="num" style="${r.left ? "color:var(--warn);font-weight:600" : ""}">${n(r.left)}</td>
+      <td class="num">${n(r.s.calls)}</td>
+      <td><div class="tgt"><input class="input num" type="number" min="1" max="500" value="${r.a.target}" data-tgt="${r.a.id}" aria-label="تارجت اليوم لـ ${esc(r.a.name)}">
+        <div class="mrow"><div class="meter" role="img" aria-label="${n(r.today.calls)} من ${n(r.a.target)}"><i class="${r.today.calls >= r.a.target ? "ok" : ""}" style="width:${Math.min(100, (100 * r.today.calls) / r.a.target)}%"></i></div><span class="small num">${n(r.today.calls)}/${n(r.a.target)}</span></div></div></td>
+      <td><div class="srcs">${r.src.length ? r.src.map((x) => `<span class="src" title="${n(x.left)} لسه متعملش عليهم"><span>${esc(x.b.name)}</span><b class="num">${n(x.k)}</b></span>`).join("") : '<span class="muted small">مفيش داتا</span>'}</div>
+        <button class="btn ghost sm" data-as="${r.a.id}" ${r.a.active ? "" : "disabled"}>+ إسناد شيت</button></td>
+      <td><div class="acts"><button class="btn sm" data-tr="${r.a.id}" ${r.open ? "" : "disabled"} title="نقل المتبرعين المفتوحين لايجنت تاني">نقل الداتا</button>
+        <button class="btn sm ${r.a.active ? "danger" : ""}" data-tg="${r.a.id}">${r.a.active ? "إيقاف" : "تفعيل"}</button></div></td></tr>`).join("")}
+    </tbody><tfoot><tr><td><b>الإجمالي</b></td><td class="num"><b>${n(sum((r) => r.s.donated))}</b></td><td class="num"><b>${money(sum((r) => r.s.amount))}</b></td>
+      <td class="num"><b>${n(sum((r) => r.total))}</b></td><td class="num"><b>${n(sum((r) => r.worked))}</b></td><td class="num"><b>${n(sum((r) => r.left))}</b></td>
+      <td class="num"><b>${n(sum((r) => r.s.calls))}</b></td><td class="num small">${n(sum((r) => r.today.calls))}/${n(sum((r) => r.a.target))}</td><td></td><td></td></tr></tfoot></table></div></section>
+    <p class="muted small">«عدد التبرعات» و«إجمالي قيم التبرع» و«عدد المكالمات» بتتغير حسب الفترة اللي فوق. الباقي لحظي. التارجت بيتحفظ أول ما تغيّره.</p>`;
+  bindSeg("tpSeg", (v) => { ui.p = v; render(); });
+  $$("[data-tgt]").forEach((inp) => (inp.onchange = () => {
+    const a = agentById(Number(inp.dataset.tgt)), v = Math.round(Number(inp.value));
+    if (!(v >= 1 && v <= 500)) { inp.value = a.target; toast("التارجت لازم يكون رقم من ١ لـ ٥٠٠"); return; }
+    a.target = v; toast(`اتحفظ تارجت ${a.name}: ${n(v)} مكالمة في اليوم`); render();
+  }));
+  $$("[data-as]").forEach((b) => (b.onclick = () => assignSheetDlg(Number(b.dataset.as))));
   $$("[data-tg]").forEach((b) => (b.onclick = () => {
     const a = agentById(Number(b.dataset.tg));
     if (!a.active) { a.active = true; toast(`اتفعّل ${a.name}`); return render(); }
@@ -1034,6 +1069,33 @@ V.team = () => {
   }));
   $$("[data-tr]").forEach((b) => (b.onclick = () => transferDlg(Number(b.dataset.tr))));
 };
+function assignSheetDlg(agentId) {
+  const a = agentById(agentId);
+  const opts = S.batches.map((b) => ({ b, left: S.donors.filter((d) => d.batch === b.id && !d.agent && !isClosed(d)) })).filter((x) => x.left.length);
+  openDialog(`<div class="dlg">${dlgHead(`إسناد شيت لـ ${esc(a.name)}`, `معاه دلوقتي ${n(openOf(agentId).length)} متبرع مفتوح · التارجت ${n(a.target)} مكالمة في اليوم`)}
+    <div class="dlg-b">${opts.length ? `
+      <div class="field"><span class="req">الشيت</span><div class="types" role="radiogroup">${opts.map(({ b, left }, i) => `
+        <label class="type"><input type="radio" name="sheet" value="${b.id}" ${i === 0 ? "checked" : ""}><span><b>${esc(b.name)}</b><small>${TYPES[b.type].label} · ${n(left.length)} اسم لسه متوزعوش</small></span></label>`).join("")}</div></div>
+      <div class="field"><span>كام اسم؟</span>${segHtml("howSeg", [["all", "الشيت كله"], ["some", "عدد محدد"]], "all")}
+        <input class="input num" type="number" id="howMany" min="1" value="${Math.min(a.target, opts[0].left.length)}" hidden aria-label="العدد" style="max-width:160px"></div>
+      <p class="note" id="asPrev" aria-live="polite"></p>`
+      : empty("كل الشيتات اتوزعت", "مفيش أسماء متوزعتش. ارفع شيت جديد من «ملفات الداتا».")}</div>
+    <div class="dlg-f">${opts.length ? `<button class="btn primary" id="asOk">إسناد</button>` : ""}<button class="btn" data-close>إلغاء</button></div></div>`, { onOpen: (dl) => {
+    if (!opts.length) return;
+    let how = "all";
+    const pickB = () => opts.find((o) => o.b.id === Number($('input[name="sheet"]:checked', dl).value));
+    const count = () => { const o = pickB(); return how === "all" ? o.left.length : Math.max(0, Math.min(o.left.length, Math.round(Number($("#howMany", dl).value) || 0))); };
+    const upd = () => { const o = pickB(), k = count(); $("#asPrev", dl).textContent = k ? `هيتسند ${n(k)} اسم من «${o.b.name}» لـ ${a.name}.${k < o.left.length ? ` هيفضل ${n(o.left.length - k)} متوزعوش.` : ""}` : "اكتب عدد أكبر من صفر."; $("#asOk", dl).disabled = !k; };
+    $$('input[name="sheet"]', dl).forEach((r) => (r.onchange = upd));
+    $$("#howSeg button", dl).forEach((btn) => (btn.onclick = () => { how = btn.dataset.v; $$("#howSeg button", dl).forEach((x) => x.setAttribute("aria-pressed", String(x === btn))); $("#howMany", dl).hidden = how === "all"; upd(); }));
+    $("#howMany", dl).oninput = upd; upd();
+    $("#asOk", dl).onclick = () => {
+      const o = pickB(), k = count();
+      o.left.slice(0, k).forEach((d) => assign(d, agentId, "إسناد شيت"));
+      dl.close(); toast(`اتسند ${n(k)} اسم من «${o.b.name}» لـ ${a.name}`); render();
+    };
+  } });
+}
 function transferDlg(fromId) {
   const from = agentById(fromId), open = openOf(fromId), others = S.agents.filter((a) => a.active && a.id !== fromId);
   openDialog(`<div class="dlg">${dlgHead(`نقل داتا ${esc(from.name)}`, `${n(open.length)} متبرع مفتوح. اللي اتقفلوا (اتبرع أو رفض) بيفضلوا باسمه في التقارير.`)}
