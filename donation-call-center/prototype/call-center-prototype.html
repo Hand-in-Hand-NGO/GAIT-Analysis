@@ -98,7 +98,7 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; }
 .field > span { font-size: 13px; font-weight: 500; color: var(--fg-2); }
 .field .hint { font-size: 12px; color: var(--muted); }
 .req::after { content: " *"; color: var(--bad); }
-.seg { display: inline-flex; background: var(--neutral-soft); border-radius: 8px; padding: 3px; gap: 2px; flex-wrap: wrap; }
+.seg { align-self: flex-start; display: inline-flex; background: var(--neutral-soft); border-radius: 8px; padding: 3px; gap: 2px; flex-wrap: wrap; }
 .seg button { border: 0; background: transparent; height: 30px; padding: 0 12px; border-radius: 6px; cursor: pointer; color: var(--fg-2); }
 .seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); font-weight: 600; box-shadow: var(--shadow); }
 .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
@@ -135,13 +135,20 @@ td.chk, th.chk { width: 36px; padding-inline-end: 0; }
 .st.pending { background: var(--info-soft); color: var(--info); } .st.unreachable { background: var(--warn-soft); color: var(--warn); }
 .st.negative, .st.invalid { background: var(--bad-soft); color: var(--bad); }
 .due { font-size: 12.5px; font-variant-numeric: tabular-nums; } .due.over { color: var(--bad); font-weight: 600; }
+.tag.k-prospect { background: var(--info-soft); color: var(--info); } .tag.k-donor { background: var(--ok-soft); color: var(--ok); } .tag.k-conv { background: var(--ok); color: #fff; }
+.types { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 10px; }
+.type { border: 1px solid var(--line-strong); border-radius: 10px; padding: 12px 14px; display: flex; gap: 10px; align-items: flex-start; cursor: pointer; background: var(--surface); }
+.type input { accent-color: var(--accent); width: 16px; height: 16px; margin-top: 3px; }
+.type span { display: flex; flex-direction: column; } .type small { color: var(--muted); font-size: 12.5px; }
+.type:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent); }
+.drop[aria-disabled="true"] { opacity: .5; pointer-events: none; }
 .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 4px; background: var(--neutral-soft); color: var(--fg-2); }
 
 /* meters */
 .meter { height: 6px; background: var(--neutral-soft); border-radius: 3px; overflow: hidden; display: flex; min-width: 80px; }
 .meter i { display: block; height: 100%; background: var(--accent); }
 .meter i.ok { background: var(--ok); } .meter i.warn { background: var(--warn); } .meter i.bad { background: var(--bad); } .meter i.info { background: var(--info); }
-.mrow { display: flex; align-items: center; gap: 10px; } .mrow .meter { flex: 1; }
+.mrow { display: flex; align-items: center; gap: 8px; } .mrow .meter { flex: 1; min-width: 56px; }
 .bars { display: flex; flex-direction: column; gap: 9px; }
 .bar { display: grid; grid-template-columns: 130px 1fr 72px; gap: 10px; align-items: center; font-size: 13px; }
 .bar .meter { height: 8px; } .bar .v { text-align: end; font-variant-numeric: tabular-nums; color: var(--fg-2); }
@@ -297,6 +304,8 @@ const I = {
   alert: '<path d="M12 3l10 18H2zM12 10v5M12 18h.01"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   share: '<path d="M4 12h12M12 6l6 6-6 6"/>',
+  download: '<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>',
+  heart: '<path d="M12 20s-7-4.4-9-9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c-2 4.6-9 9-9 9z"/>',
 };
 const ic = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]}</svg>`;
 
@@ -373,8 +382,10 @@ const isDue = (d) => d.next !== null && d.next <= S.now;
 
 function logCall(d, agentId, x) {
   const o = OC[x.outcome];
+  const converted = o.code === "donated" && d.kind === "prospect";
   S.calls.push({ id: S.seq++, donor: d.id, agent: agentId, batch: d.batch, outcome: o.code, phone: d.phones[x.phone]?.n, amount: x.amount || null,
-    pay: x.pay || null, follow: x.follow || null, notes: x.notes || "", t: S.now });
+    pay: x.pay || null, follow: x.follow || null, notes: x.notes || "", t: S.now, converted });
+  if (converted) { d.kind = "donor"; d.convertedAt = S.now; }
   d.attempts++; d.status = o.code; d.next = x.follow || null; d.last = S.now;
   if (o.group === "ans") d.tries = 0;
   if (o.group === "none") {
@@ -391,6 +402,7 @@ function logCall(d, agentId, x) {
   if (o.code === "pledged") { d.pledge = x.amount; d.pledgeDue = x.follow; }
   if (o.code === "do_not_call") d.dnc = true;
   if (isClosed(d)) d.next = null;
+  return converted;
 }
 function assign(d, to, why) { S.moves.push({ t: S.now, donor: d.id, from: d.agent, to, why }); d.agent = to; }
 const openOf = (agentId) => S.donors.filter((d) => d.agent === agentId && !isClosed(d));
@@ -455,10 +467,14 @@ function makeRows(count, r, withIssues) {
   return rows;
 }
 
-function addBatch(name, fileName, contacts, at) {
+const TYPES = { donors: { label: "متبرعين", one: "متبرع", kind: "donor", hint: "ناس اتبرعت قبل كده. الهدف إنهم يتبرعوا تاني." },
+  prospects: { label: "متبرعين محتملين", one: "محتمل", kind: "prospect", hint: "ناس لسه متبرعتش. أول ما حد منهم يتبرع، بيتنقل لقاعدة المتبرعين لوحده." } };
+const kindTag = (d) => d.convertedAt ? `<span class="tag k-conv">اتحوّل لمتبرع</span>` : d.kind === "prospect" ? `<span class="tag k-prospect">محتمل</span>` : `<span class="tag k-donor">متبرع</span>`;
+const typeTag = (t) => `<span class="tag ${t === "prospects" ? "k-prospect" : "k-donor"}">${TYPES[t].label}</span>`;
+function addBatch(name, fileName, contacts, at, type = "donors") {
   const id = S.seq++;
-  S.batches.push({ id, name, fileName, at, count: contacts.length });
-  contacts.forEach((c) => S.donors.push({ id: S.seq++, batch: id, name: c.name, phones: c.phones.map((p) => ({ n: p, bad: false })), notes: c.notes || "",
+  S.batches.push({ id, name, fileName, at, type, count: contacts.length });
+  contacts.forEach((c) => S.donors.push({ id: S.seq++, batch: id, kind: TYPES[type].kind, convertedAt: null, name: c.name, phones: c.phones.map((p) => ({ n: p, bad: false })), notes: c.notes || "",
     agent: null, status: "new", attempts: 0, tries: 0, next: null, last: null, pledge: null, pledgeDue: null, total: 0, dnc: false }));
   return id;
 }
@@ -473,18 +489,20 @@ function seed() {
   S.agents = [["سارة علي", 45], ["محمد حسن", 45], ["منى إبراهيم", 40], ["يوسف خالد", 40]].map(([name, target], i) => ({ id: 100 + i, name, target, active: true }));
   const save = S.now;
   S.now = save - 5 * D;
-  const b1 = addBatch("متبرعين رمضان ٢٠٢٦", "ramadan-2026.xlsx", rowsToContacts(makeRows(140, r)), S.now);
+  const b1 = addBatch("متبرعين رمضان ٢٠٢٦", "ramadan-2026.xlsx", rowsToContacts(makeRows(110, r)), S.now, "donors");
+  const b3 = addBatch("محتملين إعلانات فيسبوك — أكتوبر", "fb-leads-oct.xlsx", rowsToContacts(makeRows(90, r)), S.now + H, "prospects");
   S.now = save - 4 * D;
   distributeBatch(b1, S.agents.map((a) => a.id), "equal");
+  distributeBatch(b3, S.agents.map((a) => a.id), "equal");
   for (let k = 4; k >= 1; k--) { S.now = save - k * D; simulate(.7); }
   S.now = save - D + 2 * H;
-  addBatch("حملة كسوة الشتا", "kiswa-winter.xlsx", rowsToContacts(makeRows(64, r)), S.now);
+  addBatch("محتملين حملة كسوة الشتا", "kiswa-winter.xlsx", rowsToContacts(makeRows(64, r)), S.now, "prospects");
   S.now = dayStart(save) + 10 * H; simulate(.25);
   S.now = save;
 }
 
 /* ================= navigation ================= */
-const NAV_M = [["home", "الرئيسية", "home"], ["batches", "ملفات الداتا", "files"], ["team", "الايجنتس", "team"], ["follow", "المتابعات", "bell"], ["reports", "التقارير", "chart"]];
+const NAV_M = [["home", "الرئيسية", "home"], ["batches", "ملفات الداتا", "files"], ["donors", "قاعدة المتبرعين", "heart"], ["team", "الايجنتس", "team"], ["follow", "المتابعات", "bell"], ["reports", "التقارير", "chart"]];
 const NAV_A = [["work", "شاشة الاتصال", "phone"], ["afollow", "متابعاتي", "bell"], ["mine", "مكالماتي وأدائي", "list"]];
 function go(view, param = null) { S.view = view; S.param = param; render(); window.scrollTo(0, 0); }
 
@@ -546,6 +564,7 @@ function stats(range, { agent, batch } = {}) {
     refused: by("not_interested").length + by("donated_elsewhere").length + by("do_not_call").length,
     badNum: by("wrong_number").length + by("not_in_service").length, complaints: by("complaint").length,
     conv: pct(new Set(donated.map((c) => c.donor)).size, answeredDonors.size),
+    converted: cs.filter((c) => c.converted).length,
   };
 }
 
@@ -553,7 +572,7 @@ function donorTable(list, { agentCol = true, batchCol = false, select = false } 
   return `<div class="tw"><table><thead><tr>${select ? `<th class="chk"><input type="checkbox" id="selAll" aria-label="تحديد الكل"></th>` : ""}
     <th>المتبرع</th><th>الأرقام</th>${batchCol ? "<th>الداتا</th>" : ""}${agentCol ? "<th>الايجنت</th>" : ""}<th>الحالة</th><th>المتابعة</th><th class="num">المحاولات</th><th class="num">اتبرع بـ</th></tr></thead><tbody>
     ${list.map((d) => `<tr class="link" data-donor="${d.id}">${select ? `<td class="chk"><input type="checkbox" class="sel" value="${d.id}" aria-label="تحديد ${esc(d.name)}"></td>` : ""}
-      <td><b>${esc(d.name)}</b></td>
+      <td><b>${esc(d.name)}</b> ${kindTag(d)}</td>
       <td><span class="ltr num">${esc(goodPhones(d)[0]?.n || d.phones[0].n)}</span>${d.phones.length > 1 ? ` <span class="tag">+${n(d.phones.length - 1)}</span>` : ""}</td>
       ${batchCol ? `<td>${esc(batchById(d.batch).name)}</td>` : ""}${agentCol ? `<td>${d.agent ? esc(agentName(d.agent)) : '<span class="muted">لم يوزع</span>'}</td>` : ""}
       <td>${st(d.status)}</td><td>${d.next ? `<span class="due ${isDue(d) ? "over" : ""}">${when(d.next)}</span>` : '<span class="muted">—</span>'}</td>
@@ -598,12 +617,15 @@ function donorDrawer(id, refresh) {
 }
 
 /* ================= upload flow ================= */
-function uploadDialog() {
+function uploadDialog(presetType) {
   S.ui.draftName = "";
+  if (presetType) S.ui.upType = presetType;
   const html = `<div class="dlg">${dlgHead("رفع ملف داتا جديد")}
     <div class="dlg-b" id="upBody">
-      <div class="steps"><span class="on">١. اختيار الملف</span><span aria-hidden="true">←</span><span>٢. المراجعة والتسمية</span></div>
-      <label class="drop" id="drop" for="fileIn">${ic("upload")}<b>اسحب ملف الإكسيل هنا أو اضغط للاختيار</b>
+      <div class="steps"><span class="on">١. نوع الداتا والملف</span><span aria-hidden="true">←</span><span>٢. المراجعة والتسمية</span></div>
+      <div class="field"><span class="req">نوع الداتا</span><div class="types" role="radiogroup">${Object.entries(TYPES).map(([k, t]) => `
+        <label class="type"><input type="radio" name="upType" value="${k}" ${S.ui.upType === k ? "checked" : ""}><span><b>${t.label}</b><small>${t.hint}</small></span></label>`).join("")}</div></div>
+      <label class="drop" id="drop" for="fileIn" aria-disabled="${S.ui.upType ? "false" : "true"}">${ic("upload")}<b>اسحب ملف الإكسيل هنا أو اضغط للاختيار</b>
         <span class="muted small">xlsx أو xls أو csv. لازم يكون فيه عمود للاسم وعمود أو أكتر لأرقام التليفون. لو المتبرع له أكتر من رقم، حطهم في أعمدة منفصلة أو في نفس الخانة مفصولين بـ / أو فاصلة.</span></label>
       <input type="file" id="fileIn" accept=".xlsx,.xls,.csv" class="sr">
       <div class="actions"><span class="muted small">مفيش ملف جاهز؟</span><button class="btn sm" id="sampleBtn" type="button">جرّب بملف تجريبي</button></div>
@@ -611,15 +633,17 @@ function uploadDialog() {
     </div></div>`;
   openDialog(html, { onOpen: (dl) => {
     const fin = $("#fileIn", dl), drop = $("#drop", dl);
+    $$('input[name="upType"]', dl).forEach((r) => (r.onchange = () => { S.ui.upType = r.value; drop.setAttribute("aria-disabled", "false"); $("#upErr").textContent = ""; }));
     fin.onchange = () => fin.files[0] && readFile(fin.files[0]);
     drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
     drop.ondragleave = () => drop.classList.remove("over");
     drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); e.dataTransfer.files[0] && readFile(e.dataTransfer.files[0]); };
-    $("#sampleBtn", dl).onclick = () => reviewStep("donors-nov.xlsx", [["الاسم", "موبايل", "موبايل 2", "ملاحظات"], ...makeRows(46, rng((S.seq * 7919) % 9973 + 3), true)]);
+    $("#sampleBtn", dl).onclick = () => !S.ui.upType ? ($("#upErr").textContent = "اختار نوع الداتا الأول: متبرعين ولا متبرعين محتملين.") : reviewStep("donors-nov.xlsx", [["الاسم", "موبايل", "موبايل 2", "ملاحظات"], ...makeRows(46, rng((S.seq * 7919) % 9973 + 3), true)]);
   } });
 }
 function readFile(file) {
   const err = $("#upErr");
+  if (!S.ui.upType) { err.textContent = "اختار نوع الداتا الأول: متبرعين ولا متبرعين محتملين."; return; }
   const reader = new FileReader();
   reader.onerror = () => (err.textContent = "معرفناش نقرأ الملف. جرّب تحفظه تاني من إكسيل وارفعه.");
   if (/\.csv$/i.test(file.name)) {
@@ -670,7 +694,7 @@ function analyze(body, roles) {
     if (phones.some((p) => seen.has(p))) { out.dupFile++; return; }
     const ex = phones.map((p) => existing.get(p)).find(Boolean);
     phones.forEach((p) => seen.add(p));
-    if (ex) { out.dupSystem.push({ name, other: batchById(ex.batch).name }); return; }
+    if (ex) { out.dupSystem.push({ name, other: ex.kind === "donor" ? "قاعدة المتبرعين" : batchById(ex.batch).name }); return; }
     if (phones.length > 1) out.multi++;
     out.contacts.push({ name, phones, notes });
   });
@@ -685,16 +709,16 @@ function reviewStep(fileName, rows) {
     const a = analyze(g.body, g.roles);
     const ok = g.roles.includes("name") && g.roles.includes("phone");
     body.innerHTML = `
-      <div class="steps"><span class="done">١. اختيار الملف ✓</span><span aria-hidden="true">←</span><span class="on">٢. المراجعة والتسمية</span></div>
-      <div class="actions"><span class="tag ltr">${esc(fileName)}</span><span class="muted small">${n(g.body.length)} صف</span><button class="btn ghost sm" id="another" type="button">اختيار ملف تاني</button></div>
-      <label class="field"><span class="req">اسم الداتا</span><input class="input" id="bName" value="${esc(S.ui.draftName)}" placeholder="مثال: متبرعين زكاة المال — نوفمبر" maxlength="60" autocomplete="off">
+      <div class="steps"><span class="done">١. نوع الداتا والملف ✓</span><span aria-hidden="true">←</span><span class="on">٢. المراجعة والتسمية</span></div>
+      <div class="actions">${typeTag(S.ui.upType)}<span class="tag ltr">${esc(fileName)}</span><span class="muted small">${n(g.body.length)} صف</span><button class="btn ghost sm" id="another" type="button">اختيار ملف تاني</button></div>
+      <label class="field"><span class="req">اسم الداتا</span><input class="input" id="bName" value="${esc(S.ui.draftName)}" placeholder="${S.ui.upType === "prospects" ? "مثال: محتملين معرض الكتاب — نوفمبر" : "مثال: متبرعين زكاة المال — نوفمبر"}" maxlength="60" autocomplete="off">
         <span class="hint">الاسم ده اللي هيظهر للفريق وفي التقارير. اسم الملف: <span class="ltr">${esc(baseName)}</span></span></label>
       <div class="field"><span>الأعمدة</span><span class="hint">اتعرّفنا على الأعمدة تلقائي. صحّح لو في عمود متحدد غلط.</span>
         <div class="tw card"><table><thead><tr>${g.roles.map((_, i) => `<th>${esc(g.hasHeader ? g.head[i] || `عمود ${n(i + 1)}` : `عمود ${n(i + 1)}`)}</th>`).join("")}</tr></thead><tbody>
           <tr>${g.roles.map((r, i) => `<td><select class="input" data-col="${i}" aria-label="نوع العمود ${n(i + 1)}" style="height:30px">${roleOpts.map(([v, l]) => `<option value="${v}" ${v === r ? "selected" : ""}>${l}</option>`).join("")}</select></td>`).join("")}</tr>
           ${g.body.slice(0, 3).map((row) => `<tr>${g.roles.map((_, i) => `<td class="muted" dir="auto">${esc(row[i] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>
       ${ok ? `<div class="checks">
-        <div class="okc"><b>${n(a.contacts.length)}</b><span>متبرع هيتضاف</span></div>
+        <div class="okc"><b>${n(a.contacts.length)}</b><span>${S.ui.upType === "prospects" ? "متبرع محتمل" : "متبرع"} هيتضاف</span></div>
         <div><b>${n(a.multi)}</b><span>منهم ليهم أكتر من رقم</span></div>
         <div class="warnc"><b>${n(a.dupFile + a.dupSystem.length)}</b><span>مكرر: ${n(a.dupFile)} في الملف · ${n(a.dupSystem.length)} في داتا سابقة</span></div>
         <div class="badc"><b>${n(a.invalid.length)}</b><span>صف مش هيتضاف</span></div></div>
@@ -715,9 +739,9 @@ function reviewStep(fileName, rows) {
       const name = $("#bName").value.trim();
       if (!name) { $("#nameErr").textContent = "اكتب اسم للداتا الأول."; $("#bName").focus(); return; }
       if (S.batches.some((b) => b.name === name)) { $("#nameErr").textContent = "فيه داتا بنفس الاسم. اختار اسم مختلف."; $("#bName").focus(); return; }
-      const id = addBatch(name, fileName, a.contacts, S.now);
+      const id = addBatch(name, fileName, a.contacts, S.now, S.ui.upType);
       dlg.close();
-      toast(`اتحفظت داتا «${name}» — ${n(a.contacts.length)} متبرع`);
+      toast(`اتحفظت داتا «${name}» (${TYPES[S.ui.upType].label}) — ${n(a.contacts.length)} اسم`);
       go("batch", id);
     };
   };
@@ -746,8 +770,9 @@ V.home = () => {
       <div class="actions"><button class="btn primary" id="upBtn">${ic("upload")}رفع ملف داتا</button></div></div>
     <div class="stats">
       <div class="stat"><span>مكالمات النهارده</span><b>${n(today.calls)}</b><small>رد منهم ${pctS(today.ansRate)}</small></div>
-      <div class="stat"><span>تبرعات النهارده</span><b>${money(today.amount)}</b><small>${n(today.donated)} متبرع</small></div>
+      <div class="stat"><span>تبرعات النهارده</span><b>${money(today.amount)}</b><small>${n(today.donated)} تبرع</small></div>
       <div class="stat"><span>وعود النهارده</span><b>${money(today.pledgedAmt)}</b><small>${n(today.pledged)} وعد</small></div>
+      <div class="stat"><span>محتملين اتحوّلوا لمتبرعين</span><b style="color:var(--ok)">${n(today.converted)}</b><small>النهارده</small></div>
       <div class="stat"><span>متابعات فات معادها</span><b style="color:${overdue.length ? "var(--bad)" : "inherit"}">${n(overdue.length)}</b><small>على كل الايجنتس</small></div>
     </div>
     <section class="card"><div class="card-h"><h2>محتاج انتباهك</h2></div>
@@ -766,7 +791,8 @@ V.home = () => {
 };
 
 V.batches = () => {
-  const rows = [...S.batches].sort((a, b) => b.at - a.at).map((b) => {
+  const tf = S.ui.btype || "all";
+  const rows = [...S.batches].filter((b) => tf === "all" || b.type === tf).sort((a, b) => b.at - a.at).map((b) => {
     const ds = S.donors.filter((d) => d.batch === b.id);
     const assigned = ds.filter((d) => d.agent).length, called = ds.filter((d) => d.attempts).length;
     const left = ds.filter((d) => !d.agent && !isClosed(d)).length;
@@ -775,16 +801,21 @@ V.batches = () => {
     return { b, ds, assigned, called, s, state };
   });
   $("#main").innerHTML = `
-    <div class="page-head"><div class="t"><h1>ملفات الداتا</h1><span class="muted">كل ملف بترفعه بيتحفظ هنا بالاسم اللي تختاره، ومنه بتوزع على الايجنتس.</span></div>
+    <div class="page-head"><div class="t"><h1>ملفات الداتا</h1><span class="muted">كل ملف بترفعه بيتحفظ هنا بالاسم اللي تختاره، ومنه بتوزع على الايجنتس وتنزّله بنتايج الشغل.</span></div>
       <div class="actions"><button class="btn primary" id="upBtn">${ic("upload")}رفع ملف داتا</button></div></div>
-    <section class="card">${rows.length ? `<div class="tw"><table><thead><tr><th>اسم الداتا</th><th>الحالة</th><th class="num">المتبرعين</th><th>اتوزع</th><th>اتصلنا بـ</th><th class="num">تبرعات</th><th class="num">التحويل</th></tr></thead><tbody>
-      ${rows.map((r) => `<tr class="link" data-b="${r.b.id}"><td><b>${esc(r.b.name)}</b><span class="sub">اترفعت ${when(r.b.at)} · <span class="ltr">${esc(r.b.fileName)}</span></span></td>
+    ${segHtml("tSeg", [["all", `الكل (${n(S.batches.length)})`], ["donors", `متبرعين (${n(S.batches.filter((b) => b.type === "donors").length)})`], ["prospects", `متبرعين محتملين (${n(S.batches.filter((b) => b.type === "prospects").length)})`]], tf)}
+    <section class="card">${rows.length ? `<div class="tw"><table><thead><tr><th>اسم الداتا</th><th>الحالة</th><th class="num">الأسماء</th><th>اتوزع</th><th>اتصلنا بـ</th><th class="num">تبرعات</th><th class="num">اتحوّلوا</th><th><span class="sr">تنزيل</span></th></tr></thead><tbody>
+      ${rows.map((r) => `<tr class="link" data-b="${r.b.id}"><td><b>${esc(r.b.name)}</b> ${typeTag(r.b.type)}<span class="sub">اترفعت ${when(r.b.at)} · <span class="ltr">${esc(r.b.fileName)}</span></span></td>
         <td><span class="st ${r.state[1]}">${r.state[0]}</span></td><td class="num">${n(r.ds.length)}</td>
         <td><div class="mrow"><div class="meter"><i style="width:${pct(r.assigned, r.ds.length)}%"></i></div><span class="small num">${n(r.assigned)} / ${n(r.ds.length)}</span></div></td>
         <td><div class="mrow"><div class="meter"><i class="info" style="width:${pct(r.called, r.ds.length)}%"></i></div><span class="small num">${pctS(pct(r.called, r.ds.length))}</span></div></td>
-        <td class="num">${money(r.s.amount)}<span class="sub">${n(r.s.donated)} متبرع</span></td><td class="num">${pctS(r.s.conv)}</td></tr>`).join("")}</tbody></table></div>`
-      : empty("مفيش داتا لسه", "ارفع أول ملف إكسيل فيه أسماء المتبرعين وأرقامهم.")}</section>`;
-  $("#upBtn").onclick = uploadDialog;
+        <td class="num">${money(r.s.amount)}<span class="sub">${n(r.s.donated)} تبرع</span></td>
+        <td class="num">${r.b.type === "prospects" ? `<b style="color:var(--ok)">${n(r.ds.filter((d) => d.convertedAt).length)}</b>` : '<span class="muted">—</span>'}</td>
+        <td><button class="btn sm" data-dl="${r.b.id}" title="تنزيل الشيت بالنتايج" aria-label="تنزيل شيت ${esc(r.b.name)} بالنتايج">${ic("download")}</button></td></tr>`).join("")}</tbody></table></div>`
+      : empty(tf === "all" ? "مفيش داتا لسه" : "مفيش داتا من النوع ده", "ارفع ملف إكسيل فيه الأسماء والأرقام.")}</section>`;
+  bindSeg("tSeg", (v) => { S.ui.btype = v; render(); });
+  $$("[data-dl]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); exportBatch(Number(b.dataset.dl)); }));
+  $("#upBtn").onclick = () => uploadDialog(tf === "all" ? null : tf);
   $$("tr[data-b]").forEach((tr) => (tr.onclick = () => go("batch", Number(tr.dataset.b))));
 };
 
@@ -799,10 +830,11 @@ V.batch = () => {
   const perAgent = S.agents.map((a) => ({ a, mine: ds.filter((d) => d.agent === a.id) })).filter((x) => x.mine.length);
   $("#main").innerHTML = `
     <div class="page-head"><div class="t"><span class="crumb"><a data-back href="#">ملفات الداتا</a> / ${esc(b.name)}</span><h1>${esc(b.name)}</h1>
-      <span class="muted small">اترفعت ${when(b.at)} من <span class="ltr">${esc(b.fileName)}</span></span></div>
-      <div class="actions"><button class="btn" id="rename">تغيير الاسم</button></div></div>
+      <span class="muted small">${typeTag(b.type)} اترفعت ${when(b.at)} من <span class="ltr">${esc(b.fileName)}</span></span></div>
+      <div class="actions"><button class="btn" id="rename">تغيير الاسم</button><button class="btn primary" id="dlBatch">${ic("download")}تنزيل الشيت بالنتايج</button></div></div>
     <div class="stats">
-      <div class="stat"><span>المتبرعين</span><b>${n(ds.length)}</b><small>${n(ds.filter((d) => d.phones.length > 1).length)} ليهم أكتر من رقم</small></div>
+      <div class="stat"><span>${b.type === "prospects" ? "المتبرعين المحتملين" : "المتبرعين"}</span><b>${n(ds.length)}</b><small>${n(ds.filter((d) => d.phones.length > 1).length)} ليهم أكتر من رقم</small></div>
+      ${b.type === "prospects" ? `<div class="stat"><span>اتحوّلوا لمتبرعين</span><b style="color:var(--ok)">${n(ds.filter((d) => d.convertedAt).length)}</b><small>اتنقلوا لقاعدة المتبرعين</small></div>` : ""}
       <div class="stat"><span>لسه متوزعوش</span><b style="color:${pool.length ? "var(--warn)" : "inherit"}">${n(pool.length)}</b><small>${n(ds.length - pool.length)} مع الايجنتس</small></div>
       <div class="stat"><span>اتصلنا بيهم</span><b>${n(ds.filter((d) => d.attempts).length)}</b><small>${n(s.calls)} مكالمة</small></div>
       <div class="stat"><span>تبرعات الداتا دي</span><b>${money(s.amount)}</b><small>${n(s.donated)} متبرع · وعود ${money(ds.filter((d) => d.status === "pledged").reduce((x, d) => x + d.pledge, 0))}</small></div>
@@ -827,6 +859,7 @@ V.batch = () => {
         <button class="btn primary sm" id="bulkGo" disabled>نقل</button></div>
       <div id="tbl"></div></section>`;
   $("[data-back]").onclick = (e) => { e.preventDefault(); go("batches"); };
+  $("#dlBatch").onclick = () => exportBatch(b.id);
   $("#rename").onclick = () => openDialog(`<div class="dlg">${dlgHead("تغيير اسم الداتا")}<div class="dlg-b"><label class="field"><span class="req">الاسم</span><input class="input" id="rn" value="${esc(b.name)}" maxlength="60"></label><span class="small" id="rnErr" role="alert" style="color:var(--bad)"></span></div>
     <div class="dlg-f"><button class="btn primary" id="rnOk">حفظ</button><button class="btn" data-close>إلغاء</button></div></div>`, { onOpen: (dl) => {
       $("#rn", dl).focus();
@@ -878,6 +911,94 @@ V.batch = () => {
   $("#fStatus").onchange = (e) => { ui.status = e.target.value; drawTable(); };
   drawTable();
 };
+
+V.donors = () => {
+  const ui = S.ui.reg || (S.ui.reg = { src: "all", q: "" });
+  const all = S.donors.filter((d) => d.kind === "donor");
+  const conv = all.filter((d) => d.convertedAt);
+  const listOf = () => all.filter((d) => (ui.src === "all" || (ui.src === "conv" ? d.convertedAt : !d.convertedAt)))
+    .filter((d) => { const q = ui.q.trim(), qd = q.replace(/\D/g, ""); return !q || d.name.includes(q) || (qd && d.phones.some((p) => p.n.includes(qd))); })
+    .sort((a, b) => (b.convertedAt || 0) - (a.convertedAt || 0) || b.total - a.total);
+  const wk = periodRange("week");
+  $("#main").innerHTML = `
+    <div class="page-head"><div class="t"><h1>قاعدة المتبرعين</h1><span class="muted">كل المتبرعين من ملفات المتبرعين، ومعاهم أي متبرع محتمل اتبرع واتنقل هنا لوحده.</span></div>
+      <div class="actions"><button class="btn" id="dlReg">${ic("download")}تنزيل القاعدة</button></div></div>
+    <div class="stats">
+      <div class="stat"><span>إجمالي المتبرعين</span><b>${n(all.length)}</b><small>${n(all.length - conv.length)} من ملفات متبرعين</small></div>
+      <div class="stat"><span>اتحوّلوا من محتملين</span><b style="color:var(--ok)">${n(conv.length)}</b><small>${n(conv.filter((d) => d.convertedAt >= wk[0]).length)} منهم آخر ٧ أيام</small></div>
+      <div class="stat"><span>إجمالي تبرعاتهم</span><b>${money(all.reduce((s, d) => s + d.total, 0))}</b><small>المسجلة من الكول سنتر</small></div>
+    </div>
+    <section class="card"><div class="card-h">${segHtml("srcSeg", [["all", "الكل"], ["orig", "من ملفات متبرعين"], ["conv", "اتحوّلوا من محتملين"]], ui.src)}
+      <div class="search">${ic("search")}<input class="input" id="rq" placeholder="ابحث بالاسم أو الرقم" value="${esc(ui.q)}" aria-label="ابحث في قاعدة المتبرعين"></div></div>
+      <div id="regT"></div></section>`;
+  const draw = () => {
+    const list = listOf();
+    $("#regT").innerHTML = list.length ? `<div class="tw"><table><thead><tr><th>المتبرع</th><th>الأرقام</th><th>جه من</th><th>الحالة</th><th class="num">إجمالي تبرعاته</th><th>اتحوّل لمتبرع</th><th>الايجنت</th></tr></thead><tbody>
+      ${list.slice(0, 300).map((d) => `<tr class="link" data-donor="${d.id}"><td><b>${esc(d.name)}</b> ${d.convertedAt ? kindTag(d) : ""}</td>
+        <td><span class="ltr num">${esc(goodPhones(d)[0]?.n || d.phones[0].n)}</span>${d.phones.length > 1 ? ` <span class="tag">+${n(d.phones.length - 1)}</span>` : ""}</td>
+        <td>${esc(batchById(d.batch).name)}</td><td>${st(d.status)}</td><td class="num">${d.total ? money(d.total) : '<span class="muted">—</span>'}</td>
+        <td>${d.convertedAt ? when(d.convertedAt) : '<span class="muted">—</span>'}</td><td>${d.agent ? esc(agentName(d.agent)) : '<span class="muted">—</span>'}</td></tr>`).join("")}</tbody></table></div>`
+      : empty("مفيش نتايج", ui.q ? "جرّب اسم أو رقم تاني." : "لما متبرع محتمل يتبرع هيظهر هنا.");
+    bindDonorRows($("#regT"), render);
+  };
+  bindSeg("srcSeg", (v) => { ui.src = v; render(); });
+  let t; $("#rq").oninput = (e) => { clearTimeout(t); t = setTimeout(() => { ui.q = e.target.value; draw(); }, 200); };
+  $("#dlReg").onclick = () => exportRows("قاعدة المتبرعين", listOf());
+  draw();
+};
+
+/* ---------- export with agents' feedback ---------- */
+const xdt = (t) => { if (!t) return ""; const d = new Date(t), z = (x) => String(x).padStart(2, "0"); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`; };
+function rowFor(d) {
+  const cs = S.calls.filter((c) => c.donor === d.id).sort((a, b) => a.t - b.t);
+  const last = cs[cs.length - 1], lastNote = [...cs].reverse().find((c) => c.notes);
+  const lastDon = [...cs].reverse().find((c) => c.outcome === "donated");
+  const good = goodPhones(d).map((p) => p.n), bad = d.phones.filter((p) => p.bad).map((p) => p.n);
+  return {
+    "الاسم": d.name, "رقم 1": good[0] || "", "رقم 2": good[1] || "", "رقم 3": good.slice(2).join(" / "), "أرقام غير صالحة": bad.join(" / "),
+    "النوع": d.convertedAt ? "اتحوّل لمتبرع" : d.kind === "prospect" ? "متبرع محتمل" : "متبرع", "الداتا": batchById(d.batch).name,
+    "الايجنت": d.agent ? agentName(d.agent) : "لم يوزع", "آخر نتيجة": statusOf(d.status).label, "عدد المكالمات": cs.length,
+    "آخر مكالمة": last ? xdt(last.t) : "", "إجمالي التبرع": d.total || "", "طريقة الدفع": lastDon?.pay || "",
+    "مبلغ الوعد": d.status === "pledged" ? d.pledge : "", "معاد التحصيل/المتابعة": d.next ? xdt(d.next) : "",
+    "تاريخ التحويل لمتبرع": d.convertedAt ? xdt(d.convertedAt) : "",
+    "آخر ملاحظة من الايجنت": lastNote?.notes || "", "ملاحظات الملف الأصلي": d.notes || "",
+  };
+}
+function callRows(donors) {
+  const ids = new Set(donors.map((d) => d.id));
+  return S.calls.filter((c) => ids.has(c.donor)).sort((a, b) => a.t - b.t).map((c) => ({
+    "الوقت": xdt(c.t), "المتبرع": S.donors.find((d) => d.id === c.donor).name, "الرقم": c.phone || "",
+    "الايجنت": agentName(c.agent), "النتيجة": OC[c.outcome].label, "المبلغ": c.amount || "", "طريقة الدفع": c.pay || "",
+    "المتابعة": c.follow ? xdt(c.follow) : "", "اتحوّل لمتبرع": c.converted ? "نعم" : "", "ملاحظات": c.notes || "" }));
+}
+const exportBatch = (id) => { const b = batchById(id); exportRows(b.name, S.donors.filter((d) => d.batch === id)); };
+async function exportRows(title, donors) {
+  const rows = donors.map(rowFor), calls = callRows(donors);
+  const stamp = new Date(S.now).toISOString().slice(0, 10);
+  const safe = title.replace(/[\\/:*?"<>|]/g, "-");
+  let blob, filename;
+  if (window.XLSX) {
+    const wb = XLSX.utils.book_new();
+    const add = (data, name) => { const ws = XLSX.utils.json_to_sheet(data.length ? data : [{}]); ws["!views"] = [{ RTL: true }]; ws["!cols"] = Object.keys(data[0] || {}).map((k) => ({ wch: Math.max(10, k.length + 4) })); XLSX.utils.book_append_sheet(wb, ws, name); };
+    wb.Workbook = { Views: [{ RTL: true }] };
+    add(rows, "النتايج"); add(calls, "سجل المكالمات");
+    blob = new Blob([XLSX.write(wb, { bookType: "xlsx", type: "array" })]); filename = `${safe} - ${stamp}.xlsx`;
+  } else {
+    const keys = Object.keys(rows[0] || {});
+    const csv = "﻿" + [keys, ...rows.map((r) => keys.map((k) => r[k]))].map((r) => r.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    blob = new Blob([csv]); filename = `${safe} - ${stamp}.csv`;
+  }
+  const dl = window.claude?.use ? await window.claude.use("downloads").catch(() => null) : null;
+  if (dl) {
+    try { await dl.save({ filename, data: blob }); toast(`اتنزل الشيت: ${filename}`); }
+    catch (e) { if (e?.code !== "declined") toast("التنزيل مش متاح هنا. افتح ملف الـ HTML على جهازك ونزّل منه."); }
+    return;
+  }
+  // a data: URL keeps the file name when the page is opened straight from disk (file://)
+  const href = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(new Blob([blob], { type: "application/octet-stream" })); });
+  const a = document.createElement("a"); a.href = href; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  toast(`اتنزل الشيت: ${filename} — ${n(rows.length)} اسم و${n(calls.length)} مكالمة`);
+}
 
 V.team = () => {
   const rows = S.agents.map((a) => {
@@ -974,6 +1095,7 @@ V.reports = () => {
       <div class="stat"><span>التبرعات</span><b>${money(tot.amount)}</b><small>${n(tot.donated)} متبرع</small></div>
       <div class="stat"><span>الوعود</span><b>${money(tot.pledgedAmt)}</b><small>${n(tot.pledged)} وعد · اتحصّل ${n(tot.fulfilled)}</small></div>
       <div class="stat"><span>نسبة التحويل</span><b>${pctS(tot.conv)}</b><small>من اللي ردوا اتبرعوا</small></div>
+      <div class="stat"><span>محتملين اتحوّلوا لمتبرعين</span><b style="color:var(--ok)">${n(tot.converted)}</b><small>اتنقلوا لقاعدة المتبرعين</small></div>
     </div>
     <section class="card"><div class="card-h"><h2>أداء الايجنتس</h2></div><div class="tw"><table><thead><tr><th>الايجنت</th><th class="num">مكالمات</th><th class="num">رد</th><th class="num">اتبرع</th><th class="num">وعود</th><th class="num">عنده نية</th><th class="num">معاودة / تفاصيل</th><th class="num">مردّش / مغلق</th><th class="num">رفض</th><th class="num">أرقام غلط</th><th class="num">التحويل</th><th class="num">متأخر عليه</th></tr></thead><tbody>
       ${agents.map(({ a, s, overdue }) => `<tr><td><b>${esc(a.name)}</b></td><td class="num">${n(s.calls)}</td><td class="num">${pctS(s.ansRate)}</td>
@@ -988,8 +1110,8 @@ V.reports = () => {
         ${days.map((d) => `<tr><td>${new Date(d.d0).toLocaleDateString("ar-EG", { weekday: "long", day: "numeric", month: "numeric" })}</td>
           <td><div class="mrow"><div class="meter"><i style="width:${(100 * d.calls) / maxDay}%"></i></div><span class="num small">${n(d.calls)}</span></div></td><td class="num">${money(d.amount)}</td></tr>`).join("")}</tbody></table></div></section>
     </div>
-    <section class="card"><div class="card-h"><h2>أداء ملفات الداتا</h2><span class="muted small">علشان تعرف أنهي داتا بتجيب نتيجة أحسن</span></div><div class="tw"><table><thead><tr><th>الداتا</th><th class="num">المتبرعين</th><th class="num">مكالمات</th><th class="num">رد</th><th class="num">اتبرع</th><th class="num">المبلغ</th><th class="num">أرقام غلط</th><th class="num">التحويل</th></tr></thead><tbody>
-      ${batches.map(({ b, s, size }) => `<tr class="link" data-b="${b.id}"><td><b>${esc(b.name)}</b></td><td class="num">${n(size)}</td><td class="num">${n(s.calls)}</td><td class="num">${pctS(s.ansRate)}</td><td class="num">${n(s.donated)}</td><td class="num">${money(s.amount)}</td><td class="num">${n(s.badNum)}</td><td class="num"><b>${pctS(s.conv)}</b></td></tr>`).join("")}</tbody></table></div></section>
+    <section class="card"><div class="card-h"><h2>أداء ملفات الداتا</h2><span class="muted small">علشان تعرف أنهي داتا بتجيب نتيجة أحسن</span></div><div class="tw"><table><thead><tr><th>الداتا</th><th>النوع</th><th class="num">الأسماء</th><th class="num">مكالمات</th><th class="num">رد</th><th class="num">اتبرع</th><th class="num">المبلغ</th><th class="num">أرقام غلط</th><th class="num">اتحوّلوا لمتبرعين</th><th class="num">التحويل</th></tr></thead><tbody>
+      ${batches.map(({ b, s, size }) => `<tr class="link" data-b="${b.id}"><td><b>${esc(b.name)}</b></td><td>${typeTag(b.type)}</td><td class="num">${n(size)}</td><td class="num">${n(s.calls)}</td><td class="num">${pctS(s.ansRate)}</td><td class="num">${n(s.donated)}</td><td class="num">${money(s.amount)}</td><td class="num">${n(s.badNum)}</td><td class="num">${b.type === "prospects" ? n(s.converted) : "—"}</td><td class="num"><b>${pctS(s.conv)}</b></td></tr>`).join("")}</tbody></table></div></section>
     <p class="muted small">«رد» = المكالمات اللي المتبرع رد فيها من كل المكالمات. «التحويل» = المتبرعين اللي اتبرعوا من المتبرعين اللي ردوا. «متأخر عليه» رقم لحظي ومش مرتبط بالفترة.</p>`;
   bindSeg("pSeg", (v) => { ui.p = v; render(); });
   $("#rAgent").onchange = (e) => { ui.agent = e.target.value; render(); };
@@ -1012,7 +1134,7 @@ V.work = () => {
   if (!q.all.some((d) => d.id === S.ui.cur)) { S.ui.cur = q.all[0]?.id ?? null; S.ui.form = null; }
   const cur = S.donors.find((d) => d.id === S.ui.cur);
   const sec = (title, list, hint) => list.length ? `<div class="qsec"><span>${title}</span><span>${n(list.length)}</span></div>${list.map((d) => `
-    <button class="qi" type="button" data-q="${d.id}" ${d.id === S.ui.cur ? 'aria-current="true"' : ""}><span class="l1"><b>${esc(d.name)}</b>${d.status === "new" ? "" : st(d.status)}</span>
+    <button class="qi" type="button" data-q="${d.id}" ${d.id === S.ui.cur ? 'aria-current="true"' : ""}><span class="l1"><b>${esc(d.name)}</b>${d.status === "new" ? (d.kind === "prospect" ? '<span class="tag k-prospect">محتمل</span>' : "") : st(d.status)}</span>
       <span class="l2"><span class="ltr num">${esc(goodPhones(d)[0]?.n || "")}</span>${goodPhones(d).length > 1 ? `<span class="tag">${n(goodPhones(d).length)} أرقام</span>` : ""}${hint(d) ? `<span class="due ${isDue(d) ? "over" : ""}">${hint(d)}</span>` : ""}</span></button>`).join("")}` : "";
   $("#main").innerHTML = `
     <div class="page-head"><div class="t"><h1>شاشة الاتصال</h1><span class="muted">أهلاً ${esc(me.name.split(" ")[0])} — ${dateS(S.now)}</span></div></div>
@@ -1039,7 +1161,7 @@ function callCard(d, q) {
   const followAt = (k) => ({ "2h": S.now + 2 * H, eve: Math.max(dayStart(S.now) + 19 * H, S.now + H), tom: dayStart(S.now) + D + 11 * H, "2d": dayStart(S.now) + 2 * D + 11 * H, wk: dayStart(S.now) + 7 * D + 11 * H }[k]);
   const box = $("#callCard");
   box.innerHTML = `<div class="card-b">
-    <div class="donor-h"><div><h2>${esc(d.name)}</h2><div class="meta"><span>${esc(batchById(d.batch).name)}</span><span>${d.attempts ? `${n(d.attempts)} محاولة قبل كده` : "أول مرة نكلمه"}</span>${d.total ? `<span>اتبرع قبل كده بـ ${money(d.total)}</span>` : ""}</div></div>
+    <div class="donor-h"><div><h2>${esc(d.name)} ${kindTag(d)}</h2><div class="meta"><span>${esc(batchById(d.batch).name)}</span><span>${d.attempts ? `${n(d.attempts)} محاولة قبل كده` : "أول مرة نكلمه"}</span>${d.total ? `<span>اتبرع قبل كده بـ ${money(d.total)}</span>` : ""}</div></div>
       <div class="actions">${st(d.status)}</div></div>
     ${d.status === "pledged" ? `<p class="note">وعد بـ <b>${money(d.pledge)}</b> ومعاد التحصيل ${when(d.pledgeDue)}. لو دفع اختار «اتبرع».</p>` : ""}
     ${d.notes ? `<p class="note warn">ملاحظة: ${esc(d.notes)}</p>` : ""}
@@ -1055,7 +1177,7 @@ function callCard(d, q) {
       <div class="chips" role="group">${followOpts.map(([k, l]) => `<button type="button" class="chip-btn" data-fu="${k}" aria-pressed="${f.follow === k}">${l}</button>`).join("")}</div>
       <span class="hint" id="fuErr" role="alert">${o.group === "none" ? `لو مختارتش، هيرجعلك تلقائي بعد ${n(o.retry)} ساعات. بعد ${n(MAX_TRIES)} مرات ورا بعض من غير رد بيتقفل.` : ""}</span></div>` : ""}
     ${o.group === "num" ? `<p class="note warn">الرقم ده هيتعلّم إنه غير صالح.${goodPhones(d).length > 1 ? " المتبرع هيفضل في قائمتك على باقي أرقامه." : " ده آخر رقم صالح، فالمتبرع هيخرج من قائمتك."}</p>` : ""}
-    ${o.closes ? `<p class="note">المتبرع هيخرج من قائمتك بعد الحفظ.</p>` : ""}` : ""}
+    ${o.code === "donated" && d.kind === "prospect" ? `<p class="note">ده متبرع محتمل. بعد الحفظ هيتنقل لقاعدة المتبرعين ويخرج من قائمتك.</p>` : o.closes ? `<p class="note">المتبرع هيخرج من قائمتك بعد الحفظ.</p>` : ""}` : ""}
     <label class="field"><span>ملاحظات</span><textarea class="input" id="notes" rows="2" placeholder="مثال: بيفضّل الاتصال بعد المغرب">${esc(f.notes)}</textarea></label>
     <details><summary class="small" style="cursor:pointer">سجل المكالمات اللي فاتت (${n(S.calls.filter((c) => c.donor === d.id).length)})</summary><div style="margin-top:8px">${timeline(d)}</div></details>
   </div>
@@ -1071,9 +1193,9 @@ function callCard(d, q) {
     if (o.amount && !(Number(f.amount) > 0)) { $("#amtErr").textContent = "اكتب المبلغ"; $("#amt").focus(); return; }
     if (o.follow === "req" && !f.follow) { $("#fuErr").textContent = "اختار المعاد"; return; }
     const idx = q.all.findIndex((x) => x.id === d.id);
-    logCall(d, S.role, { outcome: o.code, phone: f.phone, amount: o.amount ? Number(f.amount) : null, pay: o.code === "donated" ? f.pay : null, follow: f.follow ? followAt(f.follow) : null, notes: f.notes });
+    const conv = logCall(d, S.role, { outcome: o.code, phone: f.phone, amount: o.amount ? Number(f.amount) : null, pay: o.code === "donated" ? f.pay : null, follow: f.follow ? followAt(f.follow) : null, notes: f.notes });
     S.now += 3 * MIN;
-    toast(`اتسجل: ${d.name} — ${o.label}`);
+    toast(conv ? `${d.name} اتبرع واتنقل لقاعدة المتبرعين` : `اتسجل: ${d.name} — ${o.label}`);
     S.ui.form = null;
     if (next) {
       const nq = queueOf(S.role).all.filter((x) => x.id !== d.id && (x.next === null || x.next <= S.now));
