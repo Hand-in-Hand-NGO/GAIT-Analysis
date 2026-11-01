@@ -9,3 +9,4 @@ venv/
 *.pt
 .DS_Store
 *.spec
+callcenter.db
