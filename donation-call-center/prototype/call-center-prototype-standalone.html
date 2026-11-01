@@ -155,6 +155,22 @@ tfoot td { background: var(--surface-2); border-top: 1px solid var(--line-strong
 .srcs { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
 .src { display: inline-flex; gap: 8px; justify-content: space-between; align-items: center; font-size: 12.5px; background: var(--neutral-soft); border-radius: 4px; padding: 2px 8px; max-width: 210px; }
 .src span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav .count.soft { background: var(--side-active); color: var(--side-fg); }
+.nav a[aria-current="page"] .count.soft { background: var(--accent-hover); color: var(--accent-ink); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 14px; }
+.tile { text-align: start; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; cursor: pointer; color: inherit; }
+.tile:hover:not(:disabled) { border-color: var(--accent); box-shadow: var(--shadow); }
+.tile:disabled { cursor: default; opacity: .7; }
+.tile-h { display: flex; align-items: center; gap: 10px; font-size: 15px; }
+.tile-ic { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); flex: none; }
+.tile-ic svg { width: 18px; height: 18px; }
+.tile.done .tile-ic { background: var(--neutral-soft); color: var(--muted); }
+.tile-n { display: flex; align-items: baseline; gap: 8px; } .tile-n b { font-size: 30px; line-height: 1; } .tile-n span { color: var(--muted); }
+.tile-f { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 10px; border-top: 1px solid var(--line); }
+.tile-go { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-weight: 600; } .tile-go svg { width: 16px; height: 16px; transform: scaleX(-1); }
+.pill { display: inline-flex; gap: 6px; align-items: baseline; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--muted); }
+.pill b { color: var(--fg); font-size: 15px; }
+.call-solo { max-width: 860px; }
 .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 4px; background: var(--neutral-soft); color: var(--fg-2); }
 
 /* meters */
@@ -512,13 +528,15 @@ function seed() {
   for (let k = 4; k >= 1; k--) { S.now = save - k * D; simulate(.7); }
   S.now = save - D + 2 * H;
   addBatch("محتملين حملة كسوة الشتا", "kiswa-winter.xlsx", rowsToContacts(makeRows(64, r)), S.now, "prospects");
+  const b4 = addBatch("متبرعين زكاة المال — نوفمبر", "zakat-nov.xlsx", rowsToContacts(makeRows(80, r)), S.now + H, "donors");
+  S.now = dayStart(save) + 9 * H; distributeBatch(b4, S.agents.map((a) => a.id), "equal");
   S.now = dayStart(save) + 10 * H; simulate(.25);
   S.now = save;
 }
 
 /* ================= navigation ================= */
 const NAV_M = [["home", "الرئيسية", "home"], ["batches", "ملفات الداتا", "files"], ["donors", "قاعدة المتبرعين", "heart"], ["team", "الايجنتس", "team"], ["follow", "المتابعات", "bell"], ["reports", "التقارير", "chart"]];
-const NAV_A = [["work", "شاشة الاتصال", "phone"], ["afollow", "متابعاتي", "bell"], ["mine", "مكالماتي وأدائي", "list"]];
+const NAV_A = [["today", "مكالمات النهارده", "list"], ["c-sheet", "شغل الشيت", "files"], ["c-pledge", "تحصيل الوعود", "heart"], ["c-callback", "معاودة الاتصال", "clock"], ["c-followup", "متابعة المهتمين", "bell"], ["c-retry", "إعادة المحاولة", "phone"], ["mine", "أدائي", "chart"]];
 function go(view, param = null) { S.view = view; S.param = param; render(); window.scrollTo(0, 0); }
 
 function render() {
@@ -527,14 +545,14 @@ function render() {
   $("#asRole").value = String(S.role);
   $("#clock").textContent = when(S.now);
   $("#roleLabel").textContent = isM ? "لوحة المدير" : "شاشة الايجنت";
-  const overdue = isM ? S.donors.filter((d) => d.agent && !isClosed(d) && isDue(d) && OC[d.status]?.group === "ans").length : queueOf(S.role).due.length;
+  const overdue = isM ? S.donors.filter((d) => d.agent && !isClosed(d) && isDue(d) && OC[d.status]?.group === "ans").length : 0;
   const nav = isM ? NAV_M : NAV_A;
   const active = S.view === "batch" ? "batches" : S.view;
-  $("#nav").innerHTML = nav.map(([k, l, i]) => `<a href="#" data-go="${k}" ${active === k ? 'aria-current="page"' : ""}>${ic(i)}<span>${l}</span>${(k === "follow" || k === "work") && overdue ? `<span class="count" title="مستحق دلوقتي">${n(overdue)}</span>` : ""}</a>`).join("");
+  $("#nav").innerHTML = nav.map(([k, l, i]) => `<a href="#" data-go="${k}" ${active === k ? 'aria-current="page"' : ""}>${ic(i)}<span>${l}</span>${k === "follow" && overdue ? `<span class="count" title="مستحق دلوقتي">${n(overdue)}</span>` : ""}${!isM && k.startsWith("c-") ? `<span class="count soft">${n(catCount(S.role, k.slice(2)))}</span>` : ""}</a>`).join("");
   $$("#nav a").forEach((a) => (a.onclick = (e) => { e.preventDefault(); go(a.dataset.go); }));
   const me = isM ? { name: "مدير الكول سنتر", sub: "مدير" } : { name: agentName(S.role), sub: "ايجنت" };
   $("#who").innerHTML = `<span class="avatar">${esc(me.name[0])}</span><div><span>${esc(me.name)}</span><small>${me.sub}</small></div>`;
-  const fn = V[S.view] && (isM ? NAV_M.some(([k]) => k === S.view) || S.view === "batch" : NAV_A.some(([k]) => k === S.view)) ? V[S.view] : V[isM ? "home" : "work"];
+  const fn = V[S.view] && (isM ? NAV_M.some(([k]) => k === S.view) || S.view === "batch" : NAV_A.some(([k]) => k === S.view)) ? V[S.view] : V[isM ? "home" : "today"];
   fn();
 }
 
@@ -1136,10 +1154,9 @@ function followView(isM) {
     : empty("مفيش وعود مفتوحة", "لما متبرع يوعد بمبلغ ومعاد، هيظهر هنا لحد ما يتحصّل.");
   if (tab === "complaints") body.innerHTML = complaints.length ? donorTable(complaints, { batchCol: true }) : empty("مفيش شكاوى", "الشكاوى اللي بيسجلها الايجنتس هتظهر هنا.");
   if (isM) bindDonorRows(body, render);
-  else $$("tr[data-donor]", body).forEach((tr) => (tr.onclick = () => { S.ui.cur = Number(tr.dataset.donor); S.ui.form = null; go("work"); }));
+
 }
 V.follow = () => followView(true);
-V.afollow = () => followView(false);
 
 V.reports = () => {
   const ui = S.ui.rep || (S.ui.rep = { p: "week", agent: "", batch: "" });
@@ -1196,44 +1213,93 @@ V.reports = () => {
 };
 
 /* ================= agent views ================= */
-V.work = () => {
+/* ---- the agent works one call type at a time and never sees the list ---- */
+const CATS = [
+  { k: "sheet", label: "شغل الشيت", icon: "files", hint: "أسماء جديدة من الشيتات اللي معاك، أول مرة نكلمهم." },
+  { k: "pledge", label: "تحصيل الوعود", icon: "heart", hint: "ناس وعدت تتبرع ومعادها النهارده أو فات." },
+  { k: "callback", label: "معاودة الاتصال", icon: "clock", hint: "ناس طلبت تكلمهم تاني في معاد النهارده." },
+  { k: "followup", label: "متابعة المهتمين", icon: "bell", hint: "ناس عندها نية أو طلبت تفاصيل." },
+  { k: "retry", label: "إعادة المحاولة", icon: "phone", hint: "ناس مردتش أو كان مغلق أو مشغول، أو نجرب رقمهم التاني." },
+];
+function catOf(d) {
+  if (isClosed(d) || d.dnc || d.status === "complaint") return null;
+  if (d.status === "new") return "sheet";
+  if (d.next !== null && d.next > S.now) return null;            // later — not today's work yet
+  if (d.status === "pledged") return "pledge";
+  if (d.status === "callback") return "callback";
+  if (d.status === "interested" || d.status === "send_info") return "followup";
+  if (OC[d.status]?.group === "none" || OC[d.status]?.group === "num") return "retry";
+  return null;
+}
+function catList(agentId, cat, batchId) {
+  const list = S.donors.filter((d) => d.agent === agentId && catOf(d) === cat && (!batchId || d.batch === batchId));
+  return cat === "sheet" ? list.sort((a, b) => a.id - b.id) : list.sort((a, b) => (a.next ?? 0) - (b.next ?? 0) || a.id - b.id);
+}
+const catCount = (agentId, cat) => catList(agentId, cat).length;
+const doneToday = (agentId, cat) => S.calls.filter((c) => c.agent === agentId && c.t >= dayStart(S.now) && c.cat === cat).length;
+
+V.today = () => {
   const me = agentById(S.role);
-  const q = queueOf(me.id);
   const today = stats(periodRange("today"), { agent: me.id });
-  if (!q.all.some((d) => d.id === S.ui.cur)) { S.ui.cur = q.all[0]?.id ?? null; S.ui.form = null; }
-  const cur = S.donors.find((d) => d.id === S.ui.cur);
-  const sec = (title, list, hint) => list.length ? `<div class="qsec"><span>${title}</span><span>${n(list.length)}</span></div>${list.map((d) => `
-    <button class="qi" type="button" data-q="${d.id}" ${d.id === S.ui.cur ? 'aria-current="true"' : ""}><span class="l1"><b>${esc(d.name)}</b>${d.status === "new" ? (d.kind === "prospect" ? '<span class="tag k-prospect">محتمل</span>' : "") : st(d.status)}</span>
-      <span class="l2"><span class="ltr num">${esc(goodPhones(d)[0]?.n || "")}</span>${goodPhones(d).length > 1 ? `<span class="tag">${n(goodPhones(d).length)} أرقام</span>` : ""}${hint(d) ? `<span class="due ${isDue(d) ? "over" : ""}">${hint(d)}</span>` : ""}</span></button>`).join("")}` : "";
+  const total = CATS.reduce((s, c) => s + catCount(me.id, c.k), 0);
   $("#main").innerHTML = `
-    <div class="page-head"><div class="t"><h1>شاشة الاتصال</h1><span class="muted">أهلاً ${esc(me.name.split(" ")[0])} — ${dateS(S.now)}</span></div></div>
+    <div class="page-head"><div class="t"><h1>مكالمات النهارده</h1><span class="muted">أهلاً ${esc(me.name.split(" ")[0])} — ${dateS(S.now)}. اختار نوع المكالمات اللي هتشتغل عليه.</span></div></div>
     <div class="stats">
-      <div class="stat"><span>مكالماتك النهارده</span><b>${n(today.calls)} <span class="muted" style="font-size:14px;font-weight:500">من ${n(me.target)}</span></b><div class="meter" style="margin-top:6px"><i style="width:${Math.min(100, (100 * today.calls) / me.target)}%"></i></div></div>
-      <div class="stat"><span>تبرعات النهارده</span><b>${money(today.amount)}</b><small>${n(today.donated)} متبرع</small></div>
+      <div class="stat"><span>مكالماتك النهارده</span><b>${n(today.calls)} <span class="muted" style="font-size:14px;font-weight:500">من ${n(me.target)}</span></b><div class="meter" style="margin-top:6px"><i class="${today.calls >= me.target ? "ok" : ""}" style="width:${Math.min(100, (100 * today.calls) / me.target)}%"></i></div></div>
+      <div class="stat"><span>تبرعات النهارده</span><b>${money(today.amount)}</b><small>${n(today.donated)} تبرع</small></div>
       <div class="stat"><span>وعود النهارده</span><b>${money(today.pledgedAmt)}</b><small>${n(today.pledged)} وعد</small></div>
-      <div class="stat"><span>في قائمتك</span><b>${n(q.all.length)}</b><small>${q.due.length ? `<span style="color:var(--bad);font-weight:600">${n(q.due.length)} مستحق دلوقتي</span>` : "مفيش حاجة متأخرة"}</small></div>
+      <div class="stat"><span>فاضل عليك النهارده</span><b>${n(total)}</b><small>مكالمة في كل الأنواع</small></div>
     </div>
-    ${q.all.length ? `<div class="work">
-      <section class="card queue" aria-label="قائمة الاتصال"><div class="card-h"><h2>قائمتك</h2><span class="muted small">مترتبة بالأولوية</span></div><div class="list">
-        ${sec("مستحق دلوقتي", q.due, (d) => "كان " + when(d.next))}${sec("جديد", q.fresh, () => "")}${sec("مستنيين متابعة", q.undated, () => "")}${sec("مواعيد جاية", q.later, (d) => when(d.next))}
-      </div></section>
-      <section class="card" id="callCard"></section></div>`
-      : `<section class="card">${empty("قائمتك فاضية", "مفيش متبرعين معاك دلوقتي. المدير هيوزع عليك داتا جديدة.")}</section>`}`;
-  $$("[data-q]").forEach((b) => (b.onclick = () => { if (S.ui.cur !== Number(b.dataset.q)) S.ui.form = null; S.ui.cur = Number(b.dataset.q); V.work(); }));
-  if (cur) callCard(cur, q);
+    <div class="tiles">${CATS.map((c) => { const k = catCount(me.id, c.k), done = doneToday(me.id, c.k); return `
+      <button class="tile ${k ? "" : "done"}" type="button" data-cat="${c.k}" ${k ? "" : "disabled"}>
+        <span class="tile-h"><span class="tile-ic">${ic(c.icon)}</span><b>${c.label}</b></span>
+        <span class="tile-n"><b class="num">${n(k)}</b><span>${k ? "مكالمة مستنياك" : "خلصت"}</span></span>
+        <span class="muted small">${c.hint}</span>
+        <span class="tile-f"><span class="small muted">اتعمل النهارده: ${n(done)}</span>${k ? `<span class="tile-go">ابدأ ${ic("share")}</span>` : ""}</span>
+      </button>`; }).join("")}</div>`;
+  $$("[data-cat]").forEach((b) => (b.onclick = () => go("c-" + b.dataset.cat)));
 };
-function callCard(d, q) {
+
+function catView(cat) {
+  const me = agentById(S.role), c = CATS.find((x) => x.k === cat);
+  const ui = S.ui.cat?.[cat] || ((S.ui.cat = S.ui.cat || {})[cat] = { skip: [], batch: null });
+  const sheets = cat === "sheet" ? S.batches.map((b) => ({ b, k: catList(me.id, "sheet", b.id).length })).filter((x) => x.k) : [];
+  if (ui.batch && !sheets.some((x) => x.b.id === ui.batch)) ui.batch = null;
+  const list = catList(me.id, cat, ui.batch);
+  let cur = S.donors.find((d) => d.id === S.ui.cur && list.includes(d));
+  if (!cur) {
+    cur = list.find((d) => !ui.skip.includes(d.id)) || null;
+    if (!cur && list.length) { ui.skip = []; cur = list[0]; }
+    S.ui.cur = cur?.id ?? null; S.ui.form = null;
+  }
+  const done = doneToday(me.id, cat);
+  $("#main").innerHTML = `
+    <div class="page-head"><div class="t"><span class="crumb"><a href="#" data-back>مكالمات النهارده</a> / ${c.label}</span><h1>${c.label}</h1><span class="muted">${c.hint}</span></div>
+      <div class="actions"><span class="pill">فاضل <b class="num">${n(list.length)}</b></span><span class="pill">اتعمل النهارده <b class="num">${n(done)}</b></span></div></div>
+    ${sheets.length > 1 ? `<div class="field"><span>من أنهي شيت؟</span>${segHtml("shSeg", [["", `كل الشيتات (${n(catCount(me.id, "sheet"))})`], ...sheets.map((x) => [String(x.b.id), `${x.b.name} (${n(x.k)})`])], ui.batch ? String(ui.batch) : "")}</div>` : ""}
+    ${cur ? `<section class="card call-solo" id="callCard"></section>`
+      : `<section class="card">${empty(`خلصت ${c.label}`, "مفيش مكالمات من النوع ده دلوقتي. ارجع لمكالمات النهارده واختار نوع تاني.", `<button class="btn primary" data-back2>مكالمات النهارده</button>`)}</section>`}`;
+  $("[data-back]").onclick = (e) => { e.preventDefault(); go("today"); };
+  const b2 = $("[data-back2]"); if (b2) b2.onclick = () => go("today");
+  bindSeg("shSeg", (v) => { ui.batch = v ? Number(v) : null; S.ui.cur = null; render(); });
+  if (cur) callCard(cur, cat, list.length);
+}
+CATS.forEach((c) => (V["c-" + c.k] = () => catView(c.k)));
+
+function callCard(d, cat, left) {
   const firstGood = d.phones.findIndex((p) => !p.bad);
   const f = S.ui.form && S.ui.form.id === d.id ? S.ui.form : (S.ui.form = { id: d.id, outcome: null, phone: firstGood, amount: d.status === "pledged" ? d.pledge : "", pay: PAYMENTS[0], follow: "", notes: "" });
   const o = f.outcome ? OC[f.outcome] : null;
   const followOpts = [["2h", "بعد ساعتين"], ["eve", "النهارده بالليل"], ["tom", "بكرة الصبح"], ["2d", "بعد يومين"], ["wk", "بعد أسبوع"]];
   const followAt = (k) => ({ "2h": S.now + 2 * H, eve: Math.max(dayStart(S.now) + 19 * H, S.now + H), tom: dayStart(S.now) + D + 11 * H, "2d": dayStart(S.now) + 2 * D + 11 * H, wk: dayStart(S.now) + 7 * D + 11 * H }[k]);
+  const lastCall = S.calls.filter((c) => c.donor === d.id).sort((a, b) => b.t - a.t)[0];
   const box = $("#callCard");
   box.innerHTML = `<div class="card-b">
     <div class="donor-h"><div><h2>${esc(d.name)} ${kindTag(d)}</h2><div class="meta"><span>${esc(batchById(d.batch).name)}</span><span>${d.attempts ? `${n(d.attempts)} محاولة قبل كده` : "أول مرة نكلمه"}</span>${d.total ? `<span>اتبرع قبل كده بـ ${money(d.total)}</span>` : ""}</div></div>
-      <div class="actions">${st(d.status)}</div></div>
+      <div class="actions">${d.status === "new" ? "" : st(d.status)}</div></div>
     ${d.status === "pledged" ? `<p class="note">وعد بـ <b>${money(d.pledge)}</b> ومعاد التحصيل ${when(d.pledgeDue)}. لو دفع اختار «اتبرع».</p>` : ""}
-    ${d.notes ? `<p class="note warn">ملاحظة: ${esc(d.notes)}</p>` : ""}
+    ${lastCall?.notes ? `<p class="note">آخر ملاحظة (${when(lastCall.t)}): «${esc(lastCall.notes)}»</p>` : ""}
+    ${d.notes ? `<p class="note warn">ملاحظة من الشيت: ${esc(d.notes)}</p>` : ""}
     <div class="field"><span>اتصلت على أنهي رقم؟</span><div class="phones">${d.phones.map((p, i) => `<div class="phone ${p.bad ? "bad" : ""}">
       <label><input type="radio" name="ph" value="${i}" ${i === f.phone ? "checked" : ""} ${p.bad ? "disabled" : ""}><span class="n ltr">${esc(p.n)}</span>${p.bad ? '<span class="st invalid">غير صالح</span>' : ""}</label>
       ${p.bad ? "" : `<button class="btn sm" type="button" data-cp="${esc(p.n)}">${ic("copy")}نسخ الرقم</button>`}</div>`).join("")}</div></div>
@@ -1244,36 +1310,33 @@ function callCard(d, q) {
     </div>` : ""}
     ${o.follow ? `<div class="field"><span class="${o.follow === "req" ? "req" : ""}">${o.code === "pledged" ? "معاد التحصيل" : o.group === "none" ? "تتصل تاني إمتى؟ (اختياري)" : "معاد المتابعة"}</span>
       <div class="chips" role="group">${followOpts.map(([k, l]) => `<button type="button" class="chip-btn" data-fu="${k}" aria-pressed="${f.follow === k}">${l}</button>`).join("")}</div>
-      <span class="hint" id="fuErr" role="alert">${o.group === "none" ? `لو مختارتش، هيرجعلك تلقائي بعد ${n(o.retry)} ساعات. بعد ${n(MAX_TRIES)} مرات ورا بعض من غير رد بيتقفل.` : ""}</span></div>` : ""}
-    ${o.group === "num" ? `<p class="note warn">الرقم ده هيتعلّم إنه غير صالح.${goodPhones(d).length > 1 ? " المتبرع هيفضل في قائمتك على باقي أرقامه." : " ده آخر رقم صالح، فالمتبرع هيخرج من قائمتك."}</p>` : ""}
-    ${o.code === "donated" && d.kind === "prospect" ? `<p class="note">ده متبرع محتمل. بعد الحفظ هيتنقل لقاعدة المتبرعين ويخرج من قائمتك.</p>` : o.closes ? `<p class="note">المتبرع هيخرج من قائمتك بعد الحفظ.</p>` : ""}` : ""}
+      <span class="hint" id="fuErr" role="alert">${o.group === "none" ? `لو مختارتش، هيرجع في «إعادة المحاولة» بعد ${n(o.retry)} ساعات. بعد ${n(MAX_TRIES)} مرات ورا بعض من غير رد بيتقفل.` : ""}</span></div>` : ""}
+    ${o.group === "num" ? `<p class="note warn">الرقم ده هيتعلّم إنه غير صالح.${goodPhones(d).length > 1 ? " المتبرع هيرجع في «إعادة المحاولة» على رقمه التاني." : " ده آخر رقم صالح، فالمتبرع هيتقفل."}</p>` : ""}
+    ${o.code === "donated" && d.kind === "prospect" ? `<p class="note">ده متبرع محتمل. بعد الحفظ هيتنقل لقاعدة المتبرعين.</p>` : ""}` : ""}
     <label class="field"><span>ملاحظات</span><textarea class="input" id="notes" rows="2" placeholder="مثال: بيفضّل الاتصال بعد المغرب">${esc(f.notes)}</textarea></label>
-    <details><summary class="small" style="cursor:pointer">سجل المكالمات اللي فاتت (${n(S.calls.filter((c) => c.donor === d.id).length)})</summary><div style="margin-top:8px">${timeline(d)}</div></details>
+    ${d.attempts ? `<details><summary class="small" style="cursor:pointer">سجل مكالماته (${n(S.calls.filter((c) => c.donor === d.id).length)})</summary><div style="margin-top:8px">${timeline(d)}</div></details>` : ""}
   </div>
-  <div class="sticky-f"><button class="btn primary" id="saveNext" ${o ? "" : "disabled"}>حفظ والانتقال للتالي</button><button class="btn" id="saveOnly" ${o ? "" : "disabled"}>حفظ بس</button>
+  <div class="sticky-f"><button class="btn primary" id="saveNext" ${o ? "" : "disabled"}>${left > 1 ? "حفظ والمكالمة اللي بعدها" : "حفظ"}</button>
+    ${left > 1 ? `<button class="btn" id="skip" title="هيرجعلك في آخر النوع ده">تخطّي دلوقتي</button>` : ""}
     <span class="muted small">${o ? "" : "اختار نتيجة المكالمة الأول"}</span></div>`;
   const keep = () => { f.notes = $("#notes").value; if ($("#amt")) f.amount = $("#amt").value; if ($("#pay")) f.pay = $("#pay").value; const ph = $('input[name="ph"]:checked'); if (ph) f.phone = Number(ph.value); };
-  $$("[data-oc]", box).forEach((b) => (b.onclick = () => { keep(); f.outcome = b.dataset.oc; f.follow = OC[f.outcome].follow === "req" ? "tom" : ""; callCard(d, q); }));
-  $$("[data-fu]", box).forEach((b) => (b.onclick = () => { keep(); f.follow = f.follow === b.dataset.fu && OC[f.outcome].follow !== "req" ? "" : b.dataset.fu; callCard(d, q); }));
+  const redraw = () => callCard(d, cat, left);
+  $$("[data-oc]", box).forEach((b) => (b.onclick = () => { keep(); f.outcome = b.dataset.oc; f.follow = OC[f.outcome].follow === "req" ? "tom" : ""; redraw(); }));
+  $$("[data-fu]", box).forEach((b) => (b.onclick = () => { keep(); f.follow = f.follow === b.dataset.fu && OC[f.outcome].follow !== "req" ? "" : b.dataset.fu; redraw(); }));
   $$('input[name="ph"]', box).forEach((r) => (r.onchange = keep));
   $$("[data-cp]", box).forEach((b) => (b.onclick = () => { if (navigator.clipboard?.writeText) navigator.clipboard.writeText(b.dataset.cp).then(() => toast("اتنسخ الرقم"), () => {}); }));
-  const save = (next) => {
+  const sk = $("#skip"); if (sk) sk.onclick = () => { S.ui.cat[cat].skip.push(d.id); S.ui.cur = null; S.ui.form = null; render(); };
+  $("#saveNext").onclick = () => {
     keep();
     if (o.amount && !(Number(f.amount) > 0)) { $("#amtErr").textContent = "اكتب المبلغ"; $("#amt").focus(); return; }
     if (o.follow === "req" && !f.follow) { $("#fuErr").textContent = "اختار المعاد"; return; }
-    const idx = q.all.findIndex((x) => x.id === d.id);
     const conv = logCall(d, S.role, { outcome: o.code, phone: f.phone, amount: o.amount ? Number(f.amount) : null, pay: o.code === "donated" ? f.pay : null, follow: f.follow ? followAt(f.follow) : null, notes: f.notes });
+    S.calls[S.calls.length - 1].cat = cat;
     S.now += 3 * MIN;
-    toast(conv ? `${d.name} اتبرع واتنقل لقاعدة المتبرعين` : `اتسجل: ${d.name} — ${o.label}`);
-    S.ui.form = null;
-    if (next) {
-      const nq = queueOf(S.role).all.filter((x) => x.id !== d.id && (x.next === null || x.next <= S.now));
-      S.ui.cur = (nq[Math.min(idx, nq.length - 1)] || nq[0])?.id ?? null;
-    }
-    render();
+    toast(conv ? `${d.name} اتبرع واتنقل لقاعدة المتبرعين` : `اتسجل: ${o.label}`);
+    S.ui.form = null; S.ui.cur = null;
+    render(); window.scrollTo(0, 0);
   };
-  $("#saveNext").onclick = () => save(true);
-  $("#saveOnly").onclick = () => save(false);
 }
 
 V.mine = () => {
@@ -1283,7 +1346,7 @@ V.mine = () => {
   const counts = OUTCOMES.map((o) => ({ o, k: s.cs.filter((c) => c.outcome === o.code).length })).filter((x) => x.k);
   const maxC = Math.max(1, ...counts.map((x) => x.k));
   $("#main").innerHTML = `
-    <div class="page-head"><div class="t"><h1>مكالماتي وأدائي</h1></div>${segHtml("mSeg", PERIODS, ui.p)}</div>
+    <div class="page-head"><div class="t"><h1>أدائي</h1></div>${segHtml("mSeg", PERIODS, ui.p)}</div>
     <div class="stats"><div class="stat"><span>مكالمات</span><b>${n(s.calls)}</b><small>رد ${pctS(s.ansRate)}</small></div>
       <div class="stat"><span>تبرعات</span><b>${money(s.amount)}</b><small>${n(s.donated)} متبرع</small></div>
       <div class="stat"><span>وعود</span><b>${money(s.pledgedAmt)}</b><small>${n(s.pledged)} وعد · اتحصّل ${n(s.fulfilled)}</small></div>
@@ -1297,7 +1360,7 @@ V.mine = () => {
 };
 
 /* ================= prototype controls ================= */
-$("#asRole").onchange = (e) => { S.role = e.target.value === "manager" ? "manager" : Number(e.target.value); S.ui.cur = null; S.ui.form = null; go(S.role === "manager" ? "home" : "work"); };
+$("#asRole").onchange = (e) => { S.role = e.target.value === "manager" ? "manager" : Number(e.target.value); S.ui.cur = null; S.ui.form = null; go(S.role === "manager" ? "home" : "today"); };
 $("#plusH").onclick = () => { S.now += H; render(); };
 $("#plusD").onclick = () => { S.now = dayStart(S.now) + D + 10 * H; toast("بدأ يوم شغل جديد — الساعة ١٠ الصبح"); render(); };
 $("#simDay").onclick = () => { const k = simulate(.8); toast(`الفريق عمل ${n(k)} مكالمة`); render(); };
