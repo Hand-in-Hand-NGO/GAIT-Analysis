@@ -354,13 +354,11 @@ const ic = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const OUTCOMES = [
   { code: "donated", label: "اتبرع", cat: "success", group: "ans", closes: true, amount: true },
   { code: "pledged", label: "وعد بالتبرع", cat: "positive", group: "ans", amount: true, follow: "req" },
-  { code: "interested", label: "عنده نية", cat: "positive", group: "ans", follow: "opt" },
   { code: "callback", label: "طلب معاودة الاتصال", cat: "pending", group: "ans", follow: "req" },
-  { code: "send_info", label: "طلب تفاصيل", cat: "pending", group: "ans", follow: "opt" },
-  { code: "complaint", label: "شكوى", cat: "pending", group: "ans" },
-  { code: "not_interested", label: "معندوش نية", cat: "negative", group: "ans", closes: true },
+  { code: "will_call", label: "هيكلمنا", cat: "positive", group: "ans", follow: "opt" },
+  { code: "send_info", label: "طلب تفاصيل واتس", cat: "pending", group: "ans", follow: "opt" },
   { code: "donated_elsewhere", label: "اتبرع لجهة أخرى", cat: "negative", group: "ans", closes: true },
-  { code: "do_not_call", label: "طلب عدم الاتصال", cat: "negative", group: "ans", closes: true },
+  { code: "do_not_call", label: "غير مهتم", cat: "negative", group: "ans", closes: true },
   { code: "no_answer", label: "لا يرد", cat: "unreachable", group: "none", follow: "opt" },
   { code: "busy", label: "مشغول", cat: "unreachable", group: "none", follow: "opt" },
   { code: "phone_off", label: "مغلق", cat: "unreachable", group: "none", follow: "opt" },
@@ -427,7 +425,7 @@ const agentName = (id) => agentById(id)?.name || "—";
 const batchById = (id) => S.batches.find((b) => b.id === id);
 const goodPhones = (d) => d.phones.filter((p) => !p.bad);
 function isClosed(d) {
-  return d.dnc || ["donated", "not_interested", "donated_elsewhere", "do_not_call", "exhausted", "nophone"].includes(d.status);
+  return d.dnc || ["donated", "donated_elsewhere", "do_not_call", "exhausted", "nophone"].includes(d.status);
 }
 const isDue = (d) => d.next !== null && d.next <= S.now;
 
@@ -481,7 +479,7 @@ function distributeBatch(batchId, agentIds, mode, per) {
 function simulate(share, hours = 10) {
   const r = S.r, base = dayStart(S.now) + 10 * H;
   if (hours === 10) S.agents.filter((a) => a.active && !shiftOf(a.id, dayStart(base))).forEach((a) => makeShift(a.id, dayStart(base), r));
-  const W = { donated: 11, pledged: 8, interested: 8, callback: 7, send_info: 4, complaint: 1, not_interested: 12, donated_elsewhere: 2, do_not_call: 1, no_answer: 22, busy: 6, phone_off: 12, wrong_number: 3, not_in_service: 2 };
+  const W = { donated: 11, pledged: 8, will_call: 8, callback: 7, send_info: 4, donated_elsewhere: 2, do_not_call: 13, no_answer: 22, busy: 6, phone_off: 12, wrong_number: 3, not_in_service: 2 };
   const codes = Object.keys(W), tot = codes.reduce((s, c) => s + W[c], 0);
   let made = 0;
   for (const a of S.agents.filter((x) => x.active)) {
@@ -564,7 +562,7 @@ function seed() {
 
 /* ================= navigation ================= */
 const NAV_M = [["home", "الرئيسية", "home"], ["batches", "ملفات الداتا", "files"], ["donors", "قاعدة المتبرعين", "heart"], ["team", "الايجنتس", "team"], ["attendance", "الحضور والوقفات", "clock"], ["follow", "المتابعات", "bell"], ["reports", "التقارير", "chart"], ["settings", "الإعدادات", "gear"]];
-const NAV_A = [["today", "مكالمات النهارده", "list"], ["c-sheet", "شغل الشيت", "files"], ["c-pledge", "تحصيل الوعود", "heart"], ["c-callback", "معاودة الاتصال", "clock"], ["c-followup", "متابعة المهتمين", "bell"], ["c-retry", "إعادة المحاولة", "phone"], ["mine", "أدائي", "chart"]];
+const NAV_A = [["today", "مكالمات النهارده", "list"], ["c-sheet", "شغل الشيت", "files"], ["c-pledge", "تحصيل الوعود", "heart"], ["c-callback", "معاودة الاتصال", "clock"], ["c-followup", "متابعة المهتمين", "bell"], ["mine", "أدائي", "chart"]];
 function go(view, param = null) { S.view = view; S.param = param; render(); window.scrollTo(0, 0); }
 
 function render() {
@@ -627,10 +625,10 @@ function stats(range, { agent, batch } = {}) {
     donated: donated.length, amount: donated.reduce((s, c) => s + c.amount, 0),
     pledged: pledged.length, pledgedAmt: pledged.reduce((s, c) => s + c.amount, 0),
     fulfilled: donated.filter((c) => S.calls.some((x) => x.donor === c.donor && x.outcome === "pledged" && x.t < c.t)).length,
-    interested: by("interested").length, followReq: by("callback").length + by("send_info").length,
+    interested: by("will_call").length, followReq: by("callback").length + by("send_info").length,
     noAns: by("no_answer").length + by("busy").length, off: by("phone_off").length,
-    refused: by("not_interested").length + by("donated_elsewhere").length + by("do_not_call").length,
-    badNum: by("wrong_number").length + by("not_in_service").length, complaints: by("complaint").length,
+    refused: by("donated_elsewhere").length + by("do_not_call").length,
+    badNum: by("wrong_number").length + by("not_in_service").length,
     conv: pct(new Set(donated.map((c) => c.donor)).size, answeredDonors.size),
     converted: cs.filter((c) => c.converted).length,
   };
@@ -824,12 +822,10 @@ V.home = () => {
   const today = stats(periodRange("today"));
   const undist = S.batches.map((b) => ({ b, left: S.donors.filter((d) => d.batch === b.id && !d.agent && !isClosed(d)).length })).filter((x) => x.left);
   const overdue = S.donors.filter((d) => d.agent && !isClosed(d) && isDue(d) && OC[d.status]?.group === "ans");
-  const complaints = S.donors.filter((d) => d.status === "complaint");
   const orphan = S.agents.filter((a) => !a.active && openOf(a.id).length);
   const alerts = [
     ...undist.map(({ b, left }) => ({ k: "info", i: "files", t: `داتا «${b.name}» فيها ${n(left)} متبرع لسه متوزعوش`, s: `اترفعت ${when(b.at)}`, btn: "وزّع الداتا", go: ["batch", b.id] })),
     ...(overdue.length ? [{ k: "bad", i: "clock", t: `${n(overdue.length)} متابعة فات معادها`, s: "وعود ومعاودات اتصال الايجنتس لسه مكلموهاش", btn: "عرض المتابعات", go: ["follow"] }] : []),
-    ...(complaints.length ? [{ k: "warn", i: "alert", t: `${n(complaints.length)} شكوى محتاجة مراجعتك`, s: "سجّلها الايجنتس أثناء المكالمات", btn: "مراجعة الشكاوى", go: ["follow", "complaints"] }] : []),
     ...orphan.map((a) => ({ k: "warn", i: "team", t: `${a.name} موقوف ومعاه ${n(openOf(a.id).length)} متبرع مفتوح`, s: "انقل الداتا دي لايجنت تاني", btn: "نقل الداتا", go: ["team"] })),
   ];
   const rows = S.agents.map((a) => ({ a, s: stats(periodRange("today"), { agent: a.id }), due: queueOf(a.id).due.length, last: S.calls.filter((c) => c.agent === a.id).reduce((m, c) => Math.max(m, c.t), 0) }));
@@ -1285,7 +1281,9 @@ V.team = () => {
     const mine = S.donors.filter((d) => d.agent === a.id);
     const s = stats(range, { agent: a.id }), today = stats(periodRange("today"), { agent: a.id });
     const src = S.batches.map((b) => ({ b, k: mine.filter((d) => d.batch === b.id).length, left: mine.filter((d) => d.batch === b.id && !d.attempts && !isClosed(d)).length })).filter((x) => x.k);
-    return { a, s, today, total: mine.length, worked: mine.filter((d) => d.attempts).length, left: mine.filter((d) => !d.attempts && !isClosed(d)).length, open: openOf(a.id).length, src };
+    const retry = mine.filter((d) => !isClosed(d) && (OC[d.status]?.group === "none" || OC[d.status]?.group === "num"));
+    return { a, s, today, total: mine.length, worked: mine.filter((d) => d.attempts).length, left: mine.filter((d) => !d.attempts && !isClosed(d)).length, open: openOf(a.id).length, src,
+      retryDue: retry.filter((d) => d.next === null || d.next <= S.now).length, retryWait: retry.filter((d) => d.next !== null && d.next > S.now).length };
   });
   const sum = (f) => rows.reduce((x, r) => x + f(r), 0);
   const unassigned = S.batches.map((b) => ({ b, left: S.donors.filter((d) => d.batch === b.id && !d.agent && !isClosed(d)).length })).filter((x) => x.left);
@@ -1295,7 +1293,7 @@ V.team = () => {
     ${unassigned.length ? `<p class="note warn">فيه ${n(unassigned.reduce((x, u) => x + u.left, 0))} اسم في ${n(unassigned.length)} شيت لسه متوزعوش. استخدم «إسناد شيت» في صف الايجنت.</p>` : ""}
     <section class="card"><div class="tw"><table class="team"><thead><tr>
       <th>الايجنت</th><th class="num">عدد التبرعات<span class="sub">${plabel}</span></th><th class="num">إجمالي قيم التبرع<span class="sub">${plabel}</span></th>
-      <th class="num">إجمالي المتبرعين<span class="sub">معاه</span></th><th class="num">اتعمل عليهم<span class="sub">اتصل بيهم</span></th><th class="num">لسه متعملش عليهم</th>
+      <th class="num">إجمالي المتبرعين<span class="sub">معاه</span></th><th class="num">اتعمل عليهم<span class="sub">اتصل بيهم</span></th><th class="num">لسه متعملش عليهم</th><th class="num">إعادة محاولة<span class="sub">مستحقة / مستنية</span></th>
       <th class="num">عدد المكالمات<span class="sub">${plabel}</span></th><th>تارجت اليوم<span class="sub">مكالمات</span></th><th>مصدر الداتا</th><th><span class="sr">إجراءات</span></th></tr></thead><tbody>
     ${rows.map((r) => `<tr>
       <td><b>${esc(r.a.name)}</b><span class="sub">${r.a.active ? '<span class="st success">نشط</span>' : '<span class="st">موقوف</span>'}</span></td>
@@ -1304,6 +1302,7 @@ V.team = () => {
       <td class="num">${n(r.total)}</td>
       <td class="num">${n(r.worked)}<span class="sub">${pctS(pct(r.worked, r.total))}</span></td>
       <td class="num" style="${r.left ? "color:var(--warn);font-weight:600" : ""}">${n(r.left)}</td>
+      <td class="num" title="مستحقة دلوقتي وبتظهر للايجنت جوه شغل الشيت / مستنية معادها">${n(r.retryDue)} / ${n(r.retryWait)}</td>
       <td class="num">${n(r.s.calls)}</td>
       <td><div class="tgt"><input class="input num" type="number" min="1" max="500" value="${r.a.target}" data-tgt="${r.a.id}" aria-label="تارجت اليوم لـ ${esc(r.a.name)}">
         <div class="mrow"><div class="meter" role="img" aria-label="${n(r.today.calls)} من ${n(r.a.target)}"><i class="${r.today.calls >= r.a.target ? "ok" : ""}" style="width:${Math.min(100, (100 * r.today.calls) / r.a.target)}%"></i></div><span class="small num">${n(r.today.calls)}/${n(r.a.target)}</span></div></div></td>
@@ -1312,7 +1311,7 @@ V.team = () => {
       <td><div class="acts"><button class="btn sm" data-tr="${r.a.id}" ${r.open ? "" : "disabled"} title="نقل المتبرعين المفتوحين لايجنت تاني">نقل الداتا</button>
         <button class="btn sm ${r.a.active ? "danger" : ""}" data-tg="${r.a.id}">${r.a.active ? "إيقاف" : "تفعيل"}</button></div></td></tr>`).join("")}
     </tbody><tfoot><tr><td><b>الإجمالي</b></td><td class="num"><b>${n(sum((r) => r.s.donated))}</b></td><td class="num"><b>${money(sum((r) => r.s.amount))}</b></td>
-      <td class="num"><b>${n(sum((r) => r.total))}</b></td><td class="num"><b>${n(sum((r) => r.worked))}</b></td><td class="num"><b>${n(sum((r) => r.left))}</b></td>
+      <td class="num"><b>${n(sum((r) => r.total))}</b></td><td class="num"><b>${n(sum((r) => r.worked))}</b></td><td class="num"><b>${n(sum((r) => r.left))}</b></td><td class="num"><b>${n(sum((r) => r.retryDue))} / ${n(sum((r) => r.retryWait))}</b></td>
       <td class="num"><b>${n(sum((r) => r.s.calls))}</b></td><td class="num small">${n(sum((r) => r.today.calls))}/${n(sum((r) => r.a.target))}</td><td></td><td></td></tr></tfoot></table></div></section>
     <p class="muted small">«عدد التبرعات» و«إجمالي قيم التبرع» و«عدد المكالمات» بتتغير حسب الفترة اللي فوق. الباقي لحظي. التارجت بيتحفظ أول ما تغيّره.</p>`;
   bindSeg("tpSeg", (v) => { ui.p = v; render(); });
@@ -1376,16 +1375,14 @@ function transferDlg(fromId) {
 
 function followView(isM) {
   const key = isM ? "ftab" : "aftab";
-  if (S.param === "complaints") { S.ui[key] = "complaints"; S.param = null; }
   const tab = S.ui[key] || "due";
   const ag = isM ? S.ui.fAgent || "" : "";
   const scope = (d) => (isM ? d.agent && (!ag || d.agent === Number(ag)) : d.agent === S.role);
   const due = S.donors.filter((d) => scope(d) && !isClosed(d) && d.next && d.next <= dayStart(S.now) + D && OC[d.status]?.group === "ans").sort((a, b) => a.next - b.next);
   const pledges = S.donors.filter((d) => scope(d) && d.status === "pledged").sort((a, b) => a.pledgeDue - b.pledgeDue);
-  const complaints = S.donors.filter((d) => scope(d) && d.status === "complaint");
-  const tabs = [["due", `معادها النهارده أو فات (${n(due.length)})`], ["pledges", `الوعود (${n(pledges.length)})`], ...(isM ? [["complaints", `الشكاوى (${n(complaints.length)})`]] : [])];
+  const tabs = [["due", `معادها النهارده أو فات (${n(due.length)})`], ["pledges", `الوعود (${n(pledges.length)})`]];
   $("#main").innerHTML = `
-    <div class="page-head"><div class="t"><h1>${isM ? "المتابعات" : "متابعاتي"}</h1><span class="muted">${isM ? "الوعود ومعاودات الاتصال اللي ليها معاد، والشكاوى." : "الناس اللي اتفقت معاهم على معاد. اضغط على أي اسم يفتح في شاشة الاتصال."}</span></div>
+    <div class="page-head"><div class="t"><h1>${isM ? "المتابعات" : "متابعاتي"}</h1><span class="muted">${isM ? "الوعود ومعاودات الاتصال اللي ليها معاد." : "الناس اللي اتفقت معاهم على معاد. اضغط على أي اسم يفتح في شاشة الاتصال."}</span></div>
       ${isM ? `<select class="input" id="fa" aria-label="الايجنت"><option value="">كل الايجنتس</option>${S.agents.map((a) => `<option value="${a.id}" ${String(ag) === String(a.id) ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>` : ""}</div>
     ${segHtml("ftab", tabs, tab)}
     <section class="card" id="fbody"></section>`;
@@ -1396,7 +1393,6 @@ function followView(isM) {
   if (tab === "pledges") body.innerHTML = pledges.length ? `<div class="card-h"><span>إجمالي الوعود اللي لسه متحصلتش: <b>${money(pledges.reduce((s, d) => s + d.pledge, 0))}</b></span></div><div class="tw"><table><thead><tr><th>المتبرع</th>${isM ? "<th>الايجنت</th>" : ""}<th>الداتا</th><th class="num">المبلغ</th><th>معاد التحصيل</th></tr></thead><tbody>
     ${pledges.map((d) => `<tr class="link" data-donor="${d.id}"><td><b>${esc(d.name)}</b></td>${isM ? `<td>${esc(agentName(d.agent))}</td>` : ""}<td>${esc(batchById(d.batch).name)}</td><td class="num">${money(d.pledge)}</td><td><span class="due ${d.pledgeDue <= S.now ? "over" : ""}">${when(d.pledgeDue)}</span></td></tr>`).join("")}</tbody></table></div>`
     : empty("مفيش وعود مفتوحة", "لما متبرع يوعد بمبلغ ومعاد، هيظهر هنا لحد ما يتحصّل.");
-  if (tab === "complaints") body.innerHTML = complaints.length ? donorTable(complaints, { batchCol: true }) : empty("مفيش شكاوى", "الشكاوى اللي بيسجلها الايجنتس هتظهر هنا.");
   if (isM) bindDonorRows(body, render);
 
 }
@@ -1427,7 +1423,7 @@ V.reports = () => {
       <div class="stat"><span>نسبة التحويل</span><b>${pctS(tot.conv)}</b><small>من اللي ردوا اتبرعوا</small></div>
       <div class="stat"><span>محتملين اتحوّلوا لمتبرعين</span><b style="color:var(--ok)">${n(tot.converted)}</b><small>اتنقلوا لقاعدة المتبرعين</small></div>
     </div>
-    <section class="card"><div class="card-h"><h2>أداء الايجنتس</h2></div><div class="tw"><table><thead><tr><th>الايجنت</th><th class="num">مكالمات</th><th class="num">رد</th><th class="num">اتبرع</th><th class="num">وعود</th><th class="num">عنده نية</th><th class="num">معاودة / تفاصيل</th><th class="num">مردّش / مغلق</th><th class="num">رفض</th><th class="num">أرقام غلط</th><th class="num">التحويل</th><th class="num">متأخر عليه</th></tr></thead><tbody>
+    <section class="card"><div class="card-h"><h2>أداء الايجنتس</h2></div><div class="tw"><table><thead><tr><th>الايجنت</th><th class="num">مكالمات</th><th class="num">رد</th><th class="num">اتبرع</th><th class="num">وعود</th><th class="num">هيكلمنا</th><th class="num">معاودة / تفاصيل واتس</th><th class="num">مردّش / مغلق</th><th class="num">رفض</th><th class="num">أرقام غلط</th><th class="num">التحويل</th><th class="num">متأخر عليه</th></tr></thead><tbody>
       ${agents.map(({ a, s, overdue }) => `<tr><td><b>${esc(a.name)}</b></td><td class="num">${n(s.calls)}</td><td class="num">${pctS(s.ansRate)}</td>
         <td class="num">${n(s.donated)}<span class="sub">${money(s.amount)}</span></td><td class="num">${n(s.pledged)}<span class="sub">${money(s.pledgedAmt)}</span></td>
         <td class="num">${n(s.interested)}</td><td class="num">${n(s.followReq)}</td><td class="num">${n(s.noAns)} / ${n(s.off)}</td><td class="num">${n(s.refused)}</td><td class="num">${n(s.badNum)}</td>
@@ -1449,7 +1445,7 @@ V.reports = () => {
   const c = $("#clr"); if (c) c.onclick = () => { ui.agent = ""; ui.batch = ""; render(); };
   $$("tr[data-b]").forEach((tr) => (tr.onclick = () => go("batch", Number(tr.dataset.b))));
   $("#copy").onclick = () => {
-    const tsv = ["الايجنت\tمكالمات\tنسبة الرد\tاتبرع\tمبلغ التبرعات\tوعود\tمبلغ الوعود\tعنده نية\tمعاودة/تفاصيل\tمردش\tمغلق\tرفض\tأرقام غلط\tالتحويل",
+    const tsv = ["الايجنت\tمكالمات\tنسبة الرد\tاتبرع\tمبلغ التبرعات\tوعود\tمبلغ الوعود\tهيكلمنا\tمعاودة/تفاصيل واتس\tمردش\tمغلق\tرفض\tأرقام غلط\tالتحويل",
       ...agents.map(({ a, s }) => [a.name, s.calls, s.ansRate, s.donated, s.amount, s.pledged, s.pledgedAmt, s.interested, s.followReq, s.noAns, s.off, s.refused, s.badNum, s.conv].join("\t"))].join("\n");
     const fallback = () => openDialog(`<div class="dlg">${dlgHead("انسخ التقرير")}<div class="dlg-b"><p class="muted small">حدد النص وانسخه (Ctrl+C) والصقه في إكسيل.</p><textarea class="input" rows="8" id="tsv" readonly>${esc(tsv)}</textarea></div></div>`, { onOpen: (d) => $("#tsv", d).select() });
     if (navigator.clipboard?.writeText) navigator.clipboard.writeText(tsv).then(() => toast("اتنسخ التقرير. الصقه في إكسيل."), fallback); else fallback();
@@ -1459,25 +1455,24 @@ V.reports = () => {
 /* ================= agent views ================= */
 /* ---- the agent works one call type at a time and never sees the list ---- */
 const CATS = [
-  { k: "sheet", label: "شغل الشيت", icon: "files", hint: "أسماء جديدة من الشيتات اللي معاك، أول مرة نكلمهم." },
+  { k: "sheet", label: "شغل الشيت", icon: "files", hint: "أسماء الشيتات اللي معاك." },
   { k: "pledge", label: "تحصيل الوعود", icon: "heart", hint: "ناس وعدت تتبرع ومعادها النهارده أو فات." },
   { k: "callback", label: "معاودة الاتصال", icon: "clock", hint: "ناس طلبت تكلمهم تاني في معاد النهارده." },
-  { k: "followup", label: "متابعة المهتمين", icon: "bell", hint: "ناس عندها نية أو طلبت تفاصيل." },
-  { k: "retry", label: "إعادة المحاولة", icon: "phone", hint: "ناس مردتش أو كان مغلق أو مشغول، أو نجرب رقمهم التاني." },
+  { k: "followup", label: "متابعة المهتمين", icon: "bell", hint: "ناس قالت هتكلمنا أو طلبت تفاصيل واتس." },
 ];
 function catOf(d) {
-  if (isClosed(d) || d.dnc || d.status === "complaint") return null;
+  if (isClosed(d) || d.dnc) return null;
   if (d.status === "new") return "sheet";
   if (d.next !== null && d.next > S.now) return null;            // later — not today's work yet
   if (d.status === "pledged") return "pledge";
   if (d.status === "callback") return "callback";
-  if (d.status === "interested" || d.status === "send_info") return "followup";
-  if (OC[d.status]?.group === "none" || OC[d.status]?.group === "num") return "retry";
+  if (d.status === "will_call" || d.status === "send_info") return "followup";
+  if (OC[d.status]?.group === "none" || OC[d.status]?.group === "num") return "sheet";   // retries come back inside the sheet work
   return null;
 }
 function catList(agentId, cat, batchId) {
   const list = S.donors.filter((d) => d.agent === agentId && catOf(d) === cat && (!batchId || d.batch === batchId));
-  return cat === "sheet" ? list.sort((a, b) => a.id - b.id) : list.sort((a, b) => (a.next ?? 0) - (b.next ?? 0) || a.id - b.id);
+  return cat === "sheet" ? list.sort((a, b) => (a.next ?? Infinity) - (b.next ?? Infinity) || a.id - b.id) : list.sort((a, b) => (a.next ?? 0) - (b.next ?? 0) || a.id - b.id);
 }
 const catCount = (agentId, cat) => catList(agentId, cat).length;
 const doneToday = (agentId, cat) => S.calls.filter((c) => c.agent === agentId && c.t >= dayStart(S.now) && c.cat === cat).length;
@@ -1554,8 +1549,8 @@ function callCard(d, cat, left) {
     </div>` : ""}
     ${o.follow ? `<div class="field"><span class="${o.follow === "req" ? "req" : ""}">${o.code === "pledged" ? "معاد التحصيل" : o.group === "none" ? "تتصل تاني إمتى؟ (اختياري)" : "معاد المتابعة"}</span>
       <div class="chips" role="group">${followOpts.map(([k, l]) => `<button type="button" class="chip-btn" data-fu="${k}" aria-pressed="${f.follow === k}">${l}</button>`).join("")}</div>
-      <span class="hint" id="fuErr" role="alert">${o.group === "none" ? `لو مختارتش، هيرجع في «إعادة المحاولة» ${when(nextRetry(S.now, S.settings.retry[o.code], S.calls.filter((c) => c.donor === d.id && c.t >= dayStart(S.now) && OC[c.outcome].group === "none").length + 1))}. بعد ${n(S.settings.maxTries)} مرات ورا بعض من غير رد بيتقفل.` : ""}</span></div>` : ""}
-    ${o.group === "num" ? `<p class="note warn">الرقم ده هيتعلّم إنه غير صالح.${goodPhones(d).length > 1 ? " المتبرع هيرجع في «إعادة المحاولة» على رقمه التاني." : " ده آخر رقم صالح، فالمتبرع هيتقفل."}</p>` : ""}
+      <span class="hint" id="fuErr" role="alert">${o.group === "none" ? `لو مختارتش، هيرجعلك في «شغل الشيت» ${when(nextRetry(S.now, S.settings.retry[o.code], S.calls.filter((c) => c.donor === d.id && c.t >= dayStart(S.now) && OC[c.outcome].group === "none").length + 1))}. بعد ${n(S.settings.maxTries)} مرات ورا بعض من غير رد بيتقفل.` : ""}</span></div>` : ""}
+    ${o.group === "num" ? `<p class="note warn">الرقم ده هيتعلّم إنه غير صالح.${goodPhones(d).length > 1 ? " المتبرع هيرجعلك في «شغل الشيت» على رقمه التاني." : " ده آخر رقم صالح، فالمتبرع هيتقفل."}</p>` : ""}
     ${o.code === "donated" && d.kind === "prospect" ? `<p class="note">ده متبرع محتمل. بعد الحفظ هيتنقل لقاعدة المتبرعين.</p>` : ""}` : ""}
     <label class="field"><span>ملاحظات</span><textarea class="input" id="notes" rows="2" placeholder="مثال: بيفضّل الاتصال بعد المغرب">${esc(f.notes)}</textarea></label>
     ${d.attempts ? `<details><summary class="small" style="cursor:pointer">سجل مكالماته (${n(S.calls.filter((c) => c.donor === d.id).length)})</summary><div style="margin-top:8px">${timeline(d)}</div></details>` : ""}
