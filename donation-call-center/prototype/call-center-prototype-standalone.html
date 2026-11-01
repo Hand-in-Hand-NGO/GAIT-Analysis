@@ -171,6 +171,7 @@ tfoot td { background: var(--surface-2); border-top: 1px solid var(--line-strong
 .pill { display: inline-flex; gap: 6px; align-items: baseline; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--muted); }
 .pill b { color: var(--fg); font-size: 15px; }
 .call-solo { max-width: 860px; }
+.suffix { display: flex; align-items: center; gap: 8px; } .suffix .input { width: 96px; } .suffix span { color: var(--muted); font-size: 13px; }
 .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 4px; background: var(--neutral-soft); color: var(--fg-2); }
 
 /* meters */
@@ -335,6 +336,7 @@ const I = {
   alert: '<path d="M12 3l10 18H2zM12 10v5M12 18h.01"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   share: '<path d="M4 12h12M12 6l6 6-6 6"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   download: '<path d="M12 4v12M7 11l5 5 5-5M4 20h16"/>',
   heart: '<path d="M12 20s-7-4.4-9-9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c-2 4.6-9 9-9 9z"/>',
 };
@@ -351,16 +353,25 @@ const OUTCOMES = [
   { code: "not_interested", label: "معندوش نية", cat: "negative", group: "ans", closes: true },
   { code: "donated_elsewhere", label: "اتبرع لجهة أخرى", cat: "negative", group: "ans", closes: true },
   { code: "do_not_call", label: "طلب عدم الاتصال", cat: "negative", group: "ans", closes: true },
-  { code: "no_answer", label: "لا يرد", cat: "unreachable", group: "none", retry: 4, follow: "opt" },
-  { code: "busy", label: "مشغول", cat: "unreachable", group: "none", retry: 2, follow: "opt" },
-  { code: "phone_off", label: "مغلق", cat: "unreachable", group: "none", retry: 6, follow: "opt" },
+  { code: "no_answer", label: "لا يرد", cat: "unreachable", group: "none", follow: "opt" },
+  { code: "busy", label: "مشغول", cat: "unreachable", group: "none", follow: "opt" },
+  { code: "phone_off", label: "مغلق", cat: "unreachable", group: "none", follow: "opt" },
   { code: "wrong_number", label: "رقم خطأ", cat: "invalid", group: "num" },
   { code: "not_in_service", label: "غير موجود بالخدمة", cat: "invalid", group: "num" },
 ];
 const OC = Object.fromEntries(OUTCOMES.map((o) => [o.code, o]));
 const GROUPS = [["ans", "رد عليك"], ["none", "مردّش"], ["num", "مشكلة في الرقم"]];
 const STATUS_EXTRA = { new: { label: "جديد", cat: "" }, exhausted: { label: "استنفد المحاولات", cat: "negative" }, nophone: { label: "كل أرقامه غير صالحة", cat: "invalid" } };
-const MAX_TRIES = 5;
+const DEFAULT_SETTINGS = { retry: { no_answer: 4, busy: 2, phone_off: 6 }, perDay: 3, maxTries: 5, dayStart: 10, dayEnd: 20 };
+const hourLabel = (h) => `${h % 12 || 12} ${h < 12 ? "ص" : "م"}`;
+/* when to try again: after N hours, but never past the working day or the daily cap */
+function nextRetry(from, hours, triesToday, cfg = S.settings) {
+  let t = from + hours * H;
+  const end = dayStart(from) + cfg.dayEnd * H;
+  if (triesToday >= cfg.perDay || t > end) t = dayStart(from) + D + cfg.dayStart * H;
+  else if (t < dayStart(t) + cfg.dayStart * H) t = dayStart(t) + cfg.dayStart * H;
+  return t;
+}
 const H = 3600e3, D = 24 * H, MIN = 60e3;
 const PAYMENTS = ["فودافون كاش", "إنستاباي", "تحويل بنكي", "مندوب تحصيل", "فوري", "بالمقر"];
 
@@ -421,8 +432,11 @@ function logCall(d, agentId, x) {
   if (o.group === "ans") d.tries = 0;
   if (o.group === "none") {
     d.tries++;
-    if (d.tries >= MAX_TRIES) { d.status = "exhausted"; d.next = null; }
-    else if (!x.follow) d.next = S.now + o.retry * H;
+    if (d.tries >= S.settings.maxTries) { d.status = "exhausted"; d.next = null; }
+    else if (!x.follow) {
+      const triesToday = S.calls.filter((c) => c.donor === d.id && c.t >= dayStart(S.now) && OC[c.outcome].group === "none").length;
+      d.next = nextRetry(S.now, S.settings.retry[o.code], triesToday);
+    }
   }
   if (o.group === "num") {
     d.phones[x.phone].bad = true;
@@ -516,7 +530,7 @@ function rowsToContacts(rows) {
 function seed() {
   const r = rng(11);
   const t = new Date(); t.setHours(11, 20, 0, 0);
-  S = { now: t.getTime(), r, seq: 1, role: "manager", view: "home", param: null, agents: [], batches: [], donors: [], calls: [], moves: [], ui: {} };
+  S = { settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), now: t.getTime(), r, seq: 1, role: "manager", view: "home", param: null, agents: [], batches: [], donors: [], calls: [], moves: [], ui: {} };
   S.agents = [["سارة علي", 45], ["محمد حسن", 45], ["منى إبراهيم", 40], ["يوسف خالد", 40]].map(([name, target], i) => ({ id: 100 + i, name, target, active: true }));
   const save = S.now;
   S.now = save - 5 * D;
@@ -535,7 +549,7 @@ function seed() {
 }
 
 /* ================= navigation ================= */
-const NAV_M = [["home", "الرئيسية", "home"], ["batches", "ملفات الداتا", "files"], ["donors", "قاعدة المتبرعين", "heart"], ["team", "الايجنتس", "team"], ["follow", "المتابعات", "bell"], ["reports", "التقارير", "chart"]];
+const NAV_M = [["home", "الرئيسية", "home"], ["batches", "ملفات الداتا", "files"], ["donors", "قاعدة المتبرعين", "heart"], ["team", "الايجنتس", "team"], ["follow", "المتابعات", "bell"], ["reports", "التقارير", "chart"], ["settings", "الإعدادات", "gear"]];
 const NAV_A = [["today", "مكالمات النهارده", "list"], ["c-sheet", "شغل الشيت", "files"], ["c-pledge", "تحصيل الوعود", "heart"], ["c-callback", "معاودة الاتصال", "clock"], ["c-followup", "متابعة المهتمين", "bell"], ["c-retry", "إعادة المحاولة", "phone"], ["mine", "أدائي", "chart"]];
 function go(view, param = null) { S.view = view; S.param = param; render(); window.scrollTo(0, 0); }
 
@@ -1033,6 +1047,72 @@ async function exportRows(title, donors) {
   toast(`اتنزل الشيت: ${filename} — ${n(rows.length)} اسم و${n(calls.length)} مكالمة`);
 }
 
+V.settings = () => {
+  const st0 = S.settings, f = S.ui.setDraft || (S.ui.setDraft = JSON.parse(JSON.stringify(st0)));
+  const dirty = JSON.stringify(f) !== JSON.stringify(st0);
+  const hourOpts = (sel) => Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === sel ? "selected" : ""}>${hourLabel(h)}</option>`).join("");
+  $("#main").innerHTML = `
+    <div class="page-head"><div class="t"><h1>الإعدادات</h1><span class="muted">قواعد إعادة المحاولة للمتبرعين اللي مردوش. التغيير بيتطبق على المكالمات الجاية بس.</span></div></div>
+    <form class="card" id="setForm" novalidate>
+      <div class="card-h"><h2>إعادة المحاولة</h2></div>
+      <div class="card-b">
+        <div class="field"><span>بعد كام ساعة نتصل تاني؟</span><span class="hint">الايجنت يقدر يختار معاد بنفسه وقت المكالمة. لو مختارش، بيتطبق الرقم ده.</span>
+          <div class="form-row">${OUTCOMES.filter((o) => o.group === "none").map((o) => `
+            <label class="field"><span>${st(o.code)}</span><div class="suffix"><input class="input num" type="number" min="1" max="72" step="1" data-retry="${o.code}" value="${f.retry[o.code]}" aria-label="ساعات إعادة المحاولة بعد ${o.label}"><span>ساعة</span></div></label>`).join("")}</div></div>
+        <div class="form-row">
+          <label class="field"><span>أقصى عدد محاولات في اليوم لنفس المتبرع</span><div class="suffix"><input class="input num" type="number" min="1" max="10" id="perDay" value="${f.perDay}"><span>محاولة</span></div>
+            <span class="hint">بعدها المتبرع بيستنى لأول اليوم اللي بعده.</span></label>
+          <label class="field"><span>يتقفل بعد كام محاولة ورا بعض من غير رد</span><div class="suffix"><input class="input num" type="number" min="1" max="30" id="maxTries" value="${f.maxTries}"><span>محاولة</span></div>
+            <span class="hint">حالته بتبقى «استنفد المحاولات»، وتقدر تفتحه تاني من صفحته.</span></label>
+        </div>
+        <div class="form-row">
+          <label class="field"><span>مواعيد الشغل من</span><select class="input" id="dayStart">${hourOpts(f.dayStart)}</select></label>
+          <label class="field"><span>لحد</span><select class="input" id="dayEnd">${hourOpts(f.dayEnd)}</select></label>
+        </div>
+        <span class="hint" style="margin-top:-6px">أي إعادة محاولة معادها بعد آخر الشغل بتتنقل لأول اليوم اللي بعده.</span>
+        <p class="note" id="setPrev" aria-live="polite"></p>
+        <p class="small" id="setErr" role="alert" style="color:var(--bad)"></p>
+      </div>
+      <div class="sticky-f"><button class="btn primary" id="setSave" type="submit" ${dirty ? "" : "disabled"}>حفظ الإعدادات</button>
+        <button class="btn" id="setReset" type="button" ${dirty ? "" : "disabled"}>إلغاء التغييرات</button>
+        <button class="btn ghost" id="setDef" type="button">رجّع الافتراضي</button><span class="muted small">${dirty ? "فيه تغييرات لسه متحفظتش" : ""}</span></div>
+    </form>`;
+  const read = () => {
+    $$("[data-retry]").forEach((i) => (f.retry[i.dataset.retry] = Number(i.value)));
+    f.perDay = Number($("#perDay").value); f.maxTries = Number($("#maxTries").value);
+    f.dayStart = Number($("#dayStart").value); f.dayEnd = Number($("#dayEnd").value);
+  };
+  const problem = () => {
+    if (Object.values(f.retry).some((h) => !(Number.isInteger(h) && h >= 1 && h <= 72))) return "ساعات إعادة المحاولة لازم تكون رقم صحيح من ١ لـ ٧٢.";
+    if (!(Number.isInteger(f.perDay) && f.perDay >= 1 && f.perDay <= 10)) return "أقصى محاولات في اليوم لازم تكون من ١ لـ ١٠.";
+    if (!(Number.isInteger(f.maxTries) && f.maxTries >= 1 && f.maxTries <= 30)) return "عدد المحاولات قبل القفل لازم يكون من ١ لـ ٣٠.";
+    if (f.dayEnd <= f.dayStart) return "آخر مواعيد الشغل لازم يكون بعد أولها.";
+    return "";
+  };
+  const preview = () => {
+    const err = problem(); $("#setErr").textContent = err;
+    const isDirty = JSON.stringify(f) !== JSON.stringify(st0);
+    $("#setSave").disabled = !isDirty || !!err; $("#setReset").disabled = !isDirty;
+    $(".sticky-f .muted").textContent = isDirty ? "فيه تغييرات لسه متحفظتش" : "";
+    if (err) { $("#setPrev").textContent = ""; return; }
+    // walk one example donor who never answers, starting at the first working hour
+    let t = dayStart(S.now) + f.dayStart * H, tries = 0, today = 0, day = dayStart(t); const steps = [];
+    while (tries < f.maxTries && steps.length < 8) {
+      steps.push(t); tries++; today++;
+      if (tries >= f.maxTries) break;
+      t = nextRetry(t, f.retry.no_answer, today, f);
+      if (dayStart(t) !== day) { day = dayStart(t); today = 0; }
+    }
+    $("#setPrev").innerHTML = `مثال لمتبرع مبيردش خالص («لا يرد»): هيتكلم ${steps.map((x) => `<b>${when(x)}</b>`).join("، ")}${tries >= f.maxTries ? `، وبعدها يتقفل «استنفد المحاولات».` : "…"}`;
+  };
+  $("#setForm").oninput = () => { read(); preview(); };
+  $("#setForm").onchange = () => { read(); preview(); };
+  $("#setForm").onsubmit = (e) => { e.preventDefault(); read(); if (problem()) return preview(); S.settings = JSON.parse(JSON.stringify(f)); S.ui.setDraft = null; toast("اتحفظت إعدادات إعادة المحاولة"); render(); };
+  $("#setReset").onclick = () => { S.ui.setDraft = null; render(); };
+  $("#setDef").onclick = () => { S.ui.setDraft = JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); render(); };
+  preview();
+};
+
 V.team = () => {
   const ui = S.ui.team || (S.ui.team = { p: "today" });
   const range = periodRange(ui.p);
@@ -1310,7 +1390,7 @@ function callCard(d, cat, left) {
     </div>` : ""}
     ${o.follow ? `<div class="field"><span class="${o.follow === "req" ? "req" : ""}">${o.code === "pledged" ? "معاد التحصيل" : o.group === "none" ? "تتصل تاني إمتى؟ (اختياري)" : "معاد المتابعة"}</span>
       <div class="chips" role="group">${followOpts.map(([k, l]) => `<button type="button" class="chip-btn" data-fu="${k}" aria-pressed="${f.follow === k}">${l}</button>`).join("")}</div>
-      <span class="hint" id="fuErr" role="alert">${o.group === "none" ? `لو مختارتش، هيرجع في «إعادة المحاولة» بعد ${n(o.retry)} ساعات. بعد ${n(MAX_TRIES)} مرات ورا بعض من غير رد بيتقفل.` : ""}</span></div>` : ""}
+      <span class="hint" id="fuErr" role="alert">${o.group === "none" ? `لو مختارتش، هيرجع في «إعادة المحاولة» ${when(nextRetry(S.now, S.settings.retry[o.code], S.calls.filter((c) => c.donor === d.id && c.t >= dayStart(S.now) && OC[c.outcome].group === "none").length + 1))}. بعد ${n(S.settings.maxTries)} مرات ورا بعض من غير رد بيتقفل.` : ""}</span></div>` : ""}
     ${o.group === "num" ? `<p class="note warn">الرقم ده هيتعلّم إنه غير صالح.${goodPhones(d).length > 1 ? " المتبرع هيرجع في «إعادة المحاولة» على رقمه التاني." : " ده آخر رقم صالح، فالمتبرع هيتقفل."}</p>` : ""}
     ${o.code === "donated" && d.kind === "prospect" ? `<p class="note">ده متبرع محتمل. بعد الحفظ هيتنقل لقاعدة المتبرعين.</p>` : ""}` : ""}
     <label class="field"><span>ملاحظات</span><textarea class="input" id="notes" rows="2" placeholder="مثال: بيفضّل الاتصال بعد المغرب">${esc(f.notes)}</textarea></label>
