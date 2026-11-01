@@ -167,6 +167,13 @@ tfoot td { background: var(--surface-2); border-top: 1px solid var(--line-strong
 .pill b { color: var(--fg); font-size: 15px; }
 .call-solo { max-width: 860px; }
 .suffix { display: flex; align-items: center; gap: 8px; } .suffix .input { width: 96px; } .suffix span { color: var(--muted); font-size: 13px; }
+.alarm { position: sticky; top: 0; z-index: 8; background: var(--bad); color: #fff; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  padding-block: 8px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.alarm .ic svg { width: 20px; height: 20px; } .alarm .tx { flex: 1; min-width: 200px; display: flex; flex-direction: column; font-size: 13px; }
+.alarm .btn { background: transparent; color: #fff; border-color: rgb(255 255 255 / .6); } .alarm .btn:hover { background: rgb(255 255 255 / .15); }
+.pbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+.gate .empty { padding: 48px 16px; gap: 10px; } .gate .big { font-size: 40px; color: var(--fg); } .gate.over { border-color: var(--bad); }
+.sched td { padding: 8px 10px; } .sched select { height: 32px; }
 .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 4px; background: var(--neutral-soft); color: var(--fg-2); }
 
 /* meters */
@@ -292,11 +299,12 @@ dialog.drawer { margin: 0; margin-right: auto; height: 100%; max-height: 100%; w
   <label class="grp">تشغيل بصفة <select id="asRole" aria-label="تشغيل بصفة"></select></label>
   <span class="sep" aria-hidden="true"></span>
   <span class="grp">الوقت: <b id="clock" class="num"></b>
-    <button class="dbtn" id="plusH" type="button">+ ساعة</button><button class="dbtn" id="plusD" type="button">اليوم التالي</button>
+    <button class="dbtn" id="plus15" type="button">+ ١٥ دقيقة</button><button class="dbtn" id="plusH" type="button">+ ساعة</button><button class="dbtn" id="plusD" type="button">اليوم التالي</button>
     <button class="dbtn" id="simDay" type="button">محاكاة يوم شغل للفريق</button></span>
   <span class="sep" aria-hidden="true"></span>
   <button class="dbtn" id="resetBtn" type="button">إعادة البيانات التجريبية</button>
 </div>
+<div class="alarm" id="alarm" role="alert" hidden></div>
 <div class="app">
   <aside class="side">
     <div class="logo"><b>كول سنتر التبرعات</b><span id="roleLabel"></span></div>
@@ -355,8 +363,9 @@ const OUTCOMES = [
 const OC = Object.fromEntries(OUTCOMES.map((o) => [o.code, o]));
 const GROUPS = [["ans", "رد عليك"], ["none", "مردّش"], ["num", "مشكلة في الرقم"]];
 const STATUS_EXTRA = { new: { label: "جديد", cat: "" }, exhausted: { label: "استنفد المحاولات", cat: "negative" }, nophone: { label: "كل أرقامه غير صالحة", cat: "invalid" } };
-const DEFAULT_SETTINGS = { retry: { no_answer: 4, busy: 2, phone_off: 6 }, perDay: 3, maxTries: 5, dayStart: 10, dayEnd: 20 };
-const hourLabel = (h) => `${h % 12 || 12} ${h < 12 ? "ص" : "م"}`;
+const DEFAULT_SETTINGS = { retry: { no_answer: 4, busy: 2, phone_off: 6 }, perDay: 3, maxTries: 5, dayStart: 10, dayEnd: 20,
+  pause: { break: 30, wc: 15, single: 15 }, sched: { 100: { start: 10, end: 18 }, 101: { start: 10, end: 18 }, 102: { start: 12, end: 20 }, 103: { start: 10, end: 18 } } };
+const hourLabel = (h) => `${n(h % 12 || 12)} ${h < 12 ? "ص" : "م"}`;
 /* when to try again: after N hours, but never past the working day or the daily cap */
 function nextRetry(from, hours, triesToday, cfg = S.settings) {
   let t = from + hours * H;
@@ -462,8 +471,9 @@ function distributeBatch(batchId, agentIds, mode, per) {
   return { total: pool.length, given };
 }
 
-function simulate(share) {
+function simulate(share, hours = 10) {
   const r = S.r, base = dayStart(S.now) + 10 * H;
+  if (hours === 10) S.agents.filter((a) => a.active && !shiftOf(a.id, dayStart(base))).forEach((a) => makeShift(a.id, dayStart(base), r));
   const W = { donated: 11, pledged: 8, interested: 8, callback: 7, send_info: 4, complaint: 1, not_interested: 12, donated_elsewhere: 2, do_not_call: 1, no_answer: 22, busy: 6, phone_off: 12, wrong_number: 3, not_in_service: 2 };
   const codes = Object.keys(W), tot = codes.reduce((s, c) => s + W[c], 0);
   let made = 0;
@@ -471,7 +481,7 @@ function simulate(share) {
     const q = queueOf(a.id).all.filter((d) => d.next === null || d.next <= base + 10 * H);
     const todo = q.slice(0, Math.round(Math.min(q.length, a.target) * share));
     todo.forEach((d, i) => {
-      S.now = base + Math.floor((i / Math.max(1, todo.length)) * 10 * H) + Math.floor(r() * 25) * MIN;
+      S.now = base + Math.floor((i / Math.max(1, todo.length)) * hours * H) + Math.floor(r() * (hours < 10 ? 5 : 25)) * MIN;
       if (d.next && d.next > S.now) return;
       let x = r() * tot, code = codes[0];
       for (const c of codes) { x -= W[c]; if (x <= 0) { code = c; break; } }
@@ -484,7 +494,7 @@ function simulate(share) {
       made++;
     });
   }
-  S.now = base + 10 * H + 10 * MIN;
+  S.now = base + hours * H + 10 * MIN;
   return made;
 }
 
@@ -523,7 +533,7 @@ function rowsToContacts(rows) {
 function seed() {
   const r = rng(11);
   const t = new Date(); t.setHours(11, 20, 0, 0);
-  S = { settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), now: t.getTime(), r, seq: 1, role: "manager", view: "home", param: null, agents: [], batches: [], donors: [], calls: [], moves: [], ui: {} };
+  S = { settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), now: t.getTime(), r, seq: 1, role: "manager", view: "home", param: null, agents: [], batches: [], donors: [], calls: [], moves: [], shifts: {}, ui: {} };
   S.agents = [["سارة علي", 45], ["محمد حسن", 45], ["منى إبراهيم", 40], ["يوسف خالد", 40]].map(([name, target], i) => ({ id: 100 + i, name, target, active: true }));
   const save = S.now;
   S.now = save - 5 * D;
@@ -537,12 +547,16 @@ function seed() {
   addBatch("محتملين حملة كسوة الشتا", "kiswa-winter.xlsx", rowsToContacts(makeRows(64, r)), S.now, "prospects");
   const b4 = addBatch("متبرعين زكاة المال — نوفمبر", "zakat-nov.xlsx", rowsToContacts(makeRows(80, r)), S.now + H, "donors");
   S.now = dayStart(save) + 9 * H; distributeBatch(b4, S.agents.map((a) => a.id), "equal");
-  S.now = dayStart(save) + 10 * H; simulate(.25);
+  S.now = dayStart(save) + 10 * H; simulate(.25, 1.2);
   S.now = save;
+  const d0 = dayStart(save), at = (h, m) => d0 + h * H + m * MIN;
+  S.shifts[shiftKey(100, d0)] = { start: at(10, 2), end: null, pauses: [{ r: "break", from: at(10, 50), to: at(11, 5) }] };
+  S.shifts[shiftKey(101, d0)] = { start: at(10, 25), end: null, pauses: [{ r: "wc", from: at(10, 55), to: at(11, 1) }] };
+  S.shifts[shiftKey(103, d0)] = { start: at(10, 0), end: null, pauses: [{ r: "wc", from: at(10, 30), to: at(10, 36) }, { r: "break", from: at(10, 58), to: null }] };
 }
 
 /* ================= navigation ================= */
-const NAV_M = [["home", "الرئيسية", "home"], ["batches", "ملفات الداتا", "files"], ["donors", "قاعدة المتبرعين", "heart"], ["team", "الايجنتس", "team"], ["follow", "المتابعات", "bell"], ["reports", "التقارير", "chart"], ["settings", "الإعدادات", "gear"]];
+const NAV_M = [["home", "الرئيسية", "home"], ["batches", "ملفات الداتا", "files"], ["donors", "قاعدة المتبرعين", "heart"], ["team", "الايجنتس", "team"], ["attendance", "الحضور والوقفات", "clock"], ["follow", "المتابعات", "bell"], ["reports", "التقارير", "chart"], ["settings", "الإعدادات", "gear"]];
 const NAV_A = [["today", "مكالمات النهارده", "list"], ["c-sheet", "شغل الشيت", "files"], ["c-pledge", "تحصيل الوعود", "heart"], ["c-callback", "معاودة الاتصال", "clock"], ["c-followup", "متابعة المهتمين", "bell"], ["c-retry", "إعادة المحاولة", "phone"], ["mine", "أدائي", "chart"]];
 function go(view, param = null) { S.view = view; S.param = param; render(); window.scrollTo(0, 0); }
 
@@ -554,13 +568,20 @@ function render() {
   $("#roleLabel").textContent = isM ? "لوحة المدير" : "شاشة الايجنت";
   const overdue = isM ? S.donors.filter((d) => d.agent && !isClosed(d) && isDue(d) && OC[d.status]?.group === "ans").length : 0;
   const nav = isM ? NAV_M : NAV_A;
+  const alarmN = isM ? allAlarms().filter((x) => x.lvl === "bad").length : 0;
   const active = S.view === "batch" ? "batches" : S.view;
-  $("#nav").innerHTML = nav.map(([k, l, i]) => `<a href="#" data-go="${k}" ${active === k ? 'aria-current="page"' : ""}>${ic(i)}<span>${l}</span>${k === "follow" && overdue ? `<span class="count" title="مستحق دلوقتي">${n(overdue)}</span>` : ""}${!isM && k.startsWith("c-") ? `<span class="count soft">${n(catCount(S.role, k.slice(2)))}</span>` : ""}</a>`).join("");
+  $("#nav").innerHTML = nav.map(([k, l, i]) => `<a href="#" data-go="${k}" ${active === k ? 'aria-current="page"' : ""}>${ic(i)}<span>${l}</span>${k === "follow" && overdue ? `<span class="count" title="مستحق دلوقتي">${n(overdue)}</span>` : ""}${k === "attendance" && alarmN ? `<span class="count" title="تنبيهات">${n(alarmN)}</span>` : ""}${!isM && k.startsWith("c-") ? `<span class="count soft">${n(catCount(S.role, k.slice(2)))}</span>` : ""}</a>`).join("");
   $$("#nav a").forEach((a) => (a.onclick = (e) => { e.preventDefault(); go(a.dataset.go); }));
   const me = isM ? { name: "مدير الكول سنتر", sub: "مدير" } : { name: agentName(S.role), sub: "ايجنت" };
   $("#who").innerHTML = `<span class="avatar">${esc(me.name[0])}</span><div><span>${esc(me.name)}</span><small>${me.sub}</small></div>`;
   const fn = V[S.view] && (isM ? NAV_M.some(([k]) => k === S.view) || S.view === "batch" : NAV_A.some(([k]) => k === S.view)) ? V[S.view] : V[isM ? "home" : "today"];
   fn();
+  if (!isM) {
+    if (presence(S.role) !== "working" && S.view !== "mine") $("#main").innerHTML = agentGate();
+    $("#main").insertAdjacentHTML("afterbegin", agentBar());
+    bindAgentPresence();
+  }
+  updateAlarm();
 }
 
 /* ================= shared UI ================= */
@@ -1040,12 +1061,136 @@ async function exportRows(title, donors) {
   toast(`اتنزل الشيت: ${filename} — ${n(rows.length)} اسم و${n(calls.length)} مكالمة`);
 }
 
+/* ================= attendance: shifts, pauses, alarms ================= */
+const REASONS = { break: "بريك", wc: "الحمام" };
+const dur = (ms) => { const m = Math.max(0, Math.round(ms / MIN)), h = Math.floor(m / 60); return h ? `${n(h)} س ${n(m % 60)} د` : `${n(m)} د`; };
+const schedOf = (id) => S.settings.sched[id] || { start: 10, end: 18 };
+const shiftKey = (id, day = dayStart(S.now)) => `${id}:${day}`;
+const shiftOf = (id, day) => S.shifts[shiftKey(id, day)] || null;
+function presence(id) {
+  const sh = shiftOf(id);
+  if (!sh) return "off";
+  if (sh.end) return "done";
+  return sh.pauses.some((p) => !p.to) ? "paused" : "working";
+}
+const openPause = (sh) => sh?.pauses.find((p) => !p.to) || null;
+const pauseUsed = (sh, r) => (sh ? sh.pauses.filter((p) => p.r === r).reduce((s, p) => s + ((p.to || S.now) - p.from), 0) : 0);
+const workedMs = (sh) => (sh ? Math.max(0, ((sh.end || S.now) - sh.start) - sh.pauses.reduce((s, p) => s + ((p.to || S.now) - p.from), 0)) : 0);
+function alarmsOf(id) {
+  const a = agentById(id), sc = schedOf(id), sh = shiftOf(id), cfg = S.settings.pause, out = [];
+  if (!a.active) return out;
+  const startAt = dayStart(S.now) + sc.start * H;
+  if (!sh && S.now > startAt + 15 * MIN && S.now < dayStart(S.now) + sc.end * H) out.push({ lvl: "warn", t: `${a.name} لسه مبدأش الشغل (معاده ${hourLabel(sc.start)})` });
+  if (sh && sh.start > startAt + 10 * MIN) out.push({ lvl: "info", t: `${a.name} بدأ متأخر ${dur(sh.start - startAt)}` });
+  const op = openPause(sh);
+  if (op && S.now - op.from > cfg.single * MIN) out.push({ lvl: "bad", t: `${a.name} في ${REASONS[op.r]} بقاله ${dur(S.now - op.from)} — المسموح للوقفة الواحدة ${n(cfg.single)} د` });
+  for (const r of ["break", "wc"]) { const used = pauseUsed(sh, r); if (used > cfg[r] * MIN) out.push({ lvl: "bad", t: `${a.name} تخطى وقت ${REASONS[r]} اليومي: ${dur(used)} من ${n(cfg[r])} د` }); }
+  return out;
+}
+const allAlarms = () => S.agents.flatMap((a) => alarmsOf(a.id).map((x) => ({ ...x, id: a.id })));
+function startShift(id) { S.shifts[shiftKey(id)] = { start: S.now, end: null, pauses: [] }; }
+function makeShift(id, day, r, opts = {}) {
+  const sc = schedOf(id), st0 = day + sc.start * H + Math.floor(r() * (opts.late ?? 12)) * MIN;
+  const brk = day + Math.round((sc.start + sc.end) / 2) * H + Math.floor(r() * 30) * MIN;
+  S.shifts[shiftKey(id, day)] = { start: st0, end: day + sc.end * H + Math.floor(r() * 10) * MIN, pauses: [
+    { r: "wc", from: st0 + 2 * H, to: st0 + 2 * H + (4 + Math.floor(r() * 7)) * MIN },
+    { r: "break", from: brk, to: brk + (18 + Math.floor(r() * 18)) * MIN },
+    { r: "wc", from: brk + 3 * H, to: brk + 3 * H + (3 + Math.floor(r() * 6)) * MIN }] };
+}
+
+/* manager alarm bar + beep */
+let lastBad = 0;
+function beep() {
+  try { const ctx = beep.ctx || (beep.ctx = new (window.AudioContext || window.webkitAudioContext)());
+    [0, .25].forEach((d) => { const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = 880; o.connect(g); g.connect(ctx.destination); g.gain.setValueAtTime(.12, ctx.currentTime + d); g.gain.exponentialRampToValueAtTime(.001, ctx.currentTime + d + .2); o.start(ctx.currentTime + d); o.stop(ctx.currentTime + d + .22); });
+  } catch { /* sound is optional */ }
+}
+function updateAlarm() {
+  const bar = $("#alarm");
+  if (S.role !== "manager") { bar.hidden = true; return; }
+  const bad = allAlarms().filter((x) => x.lvl === "bad");
+  const key = bad.map((x) => x.t.split(" بقاله")[0]).join("|");
+  if (!bad.length || S.ui.alarmAck === key) { bar.hidden = true; lastBad = bad.length; return; }
+  bar.hidden = false;
+  bar.innerHTML = `<span class="ic">${ic("alert")}</span><div class="tx"><b>${n(bad.length)} تنبيه وقفات</b><span>${bad.map((x) => esc(x.t)).join(" · ")}</span></div>
+    <button class="btn sm" id="alGo">عرض الحضور</button><button class="btn sm" id="alAck">تمام، شفته</button>`;
+  $("#alGo").onclick = () => go("attendance");
+  $("#alAck").onclick = () => { S.ui.alarmAck = key; bar.hidden = true; };
+  if (bad.length > lastBad) beep();
+  lastBad = bad.length;
+}
+
+V.attendance = () => {
+  const cfg = S.settings.pause;
+  const rows = S.agents.map((a) => ({ a, sc: schedOf(a.id), sh: shiftOf(a.id), pr: presence(a.id), al: alarmsOf(a.id) }));
+  const log = rows.flatMap(({ a, sh }) => (sh ? sh.pauses.map((p) => ({ a, p })) : [])).sort((x, y) => y.p.from - x.p.from);
+  const prChip = (pr, sh) => pr === "working" ? '<span class="st success">شغال</span>' : pr === "paused" ? `<span class="st unreachable">${REASONS[openPause(sh).r]} · <span data-since="${openPause(sh).from}">${dur(S.now - openPause(sh).from)}</span></span>` : pr === "done" ? '<span class="st">خلّص يومه</span>' : '<span class="st">لسه مبدأش</span>';
+  const useCell = (sh, r) => { const u = pauseUsed(sh, r), lim = cfg[r] * MIN; return `<div class="mrow"><div class="meter"><i class="${u > lim ? "bad" : u > lim * .8 ? "warn" : "info"}" style="width:${Math.min(100, (100 * u) / lim)}%"></i></div><span class="small num" style="${u > lim ? "color:var(--bad);font-weight:600" : ""}">${dur(u)} / ${n(cfg[r])} د</span></div>`; };
+  $("#main").innerHTML = `
+    <div class="page-head"><div class="t"><h1>الحضور والوقفات</h1><span class="muted">النهارده ${dateS(S.now)} · المسموح: بريك ${n(cfg.break)} د، الحمام ${n(cfg.wc)} د في اليوم، والوقفة الواحدة ${n(cfg.single)} د.</span></div>
+      <div class="actions"><button class="btn" id="toSet">${ic("gear")}تعديل المواعيد والمسموح</button></div></div>
+    <section class="card"><div class="tw"><table><thead><tr><th>الايجنت</th><th>مواعيده</th><th>دلوقتي</th><th>بدأ</th><th>اشتغل من يومه</th><th>البريك</th><th>الحمام</th><th>تنبيهات</th></tr></thead><tbody>
+      ${rows.map(({ a, sc, sh, pr, al }) => { const sched = (sc.end - sc.start) * H, w = workedMs(sh); return `<tr>
+        <td><b>${esc(a.name)}</b></td><td class="small">${hourLabel(sc.start)} – ${hourLabel(sc.end)}<span class="sub">${n(sc.end - sc.start)} ساعات</span></td>
+        <td>${prChip(pr, sh)}</td><td class="small">${sh ? timeS(sh.start) : "—"}${sh?.end ? `<span class="sub">خلّص ${timeS(sh.end)}</span>` : ""}</td>
+        <td><div class="mrow"><div class="meter"><i class="ok" style="width:${Math.min(100, (100 * w) / sched)}%"></i></div><span class="small num">${dur(w)} من ${n(sc.end - sc.start)} س</span></div></td>
+        <td>${useCell(sh, "break")}</td><td>${useCell(sh, "wc")}</td>
+        <td class="small">${al.length ? al.map((x) => `<span class="st ${x.lvl === "bad" ? "negative" : x.lvl === "warn" ? "unreachable" : "pending"}" style="white-space:normal">${esc(x.t.replace(a.name + " ", ""))}</span>`).join("<br>") : '<span class="muted">—</span>'}</td></tr>`; }).join("")}
+    </tbody></table></div></section>
+    <section class="card"><div class="card-h"><h2>وقفات النهارده</h2><span class="muted small">${n(log.length)} وقفة</span></div>
+      ${log.length ? `<div class="tw"><table><thead><tr><th>الايجنت</th><th>السبب</th><th>من</th><th>لحد</th><th class="num">المدة</th></tr></thead><tbody>
+      ${log.map(({ a, p }) => { const d0 = (p.to || S.now) - p.from, over = d0 > cfg.single * MIN; return `<tr><td>${esc(a.name)}</td><td>${REASONS[p.r]}</td><td class="small">${timeS(p.from)}</td><td class="small">${p.to ? timeS(p.to) : '<span class="st unreachable">لسه واقف</span>'}</td>
+        <td class="num" style="${over ? "color:var(--bad);font-weight:600" : ""}">${dur(d0)}</td></tr>`; }).join("")}</tbody></table></div>` : empty("مفيش وقفات النهارده", "أول ما ايجنت يوقف شغل هتظهر هنا.")}</section>`;
+  $("#toSet").onclick = () => go("settings");
+};
+
+/* agent presence bar and gate */
+function agentBar() {
+  const id = S.role, sh = shiftOf(id), pr = presence(id), sc = schedOf(id), cfg = S.settings.pause;
+  const sched = (sc.end - sc.start) * H, w = workedMs(sh);
+  const chip = pr === "working" ? '<span class="st success">شغال</span>' : pr === "paused" ? `<span class="st unreachable">واقف: ${REASONS[openPause(sh).r]}</span>` : pr === "done" ? '<span class="st">خلّصت يومك</span>' : '<span class="st">لسه مبدأتش</span>';
+  return `<div class="pbar">${chip}<span class="small">مواعيدك ${hourLabel(sc.start)} – ${hourLabel(sc.end)}</span>
+    ${sh ? `<span class="small">اشتغلت <b>${dur(w)}</b> من ${n(sc.end - sc.start)} س</span><div class="meter" style="width:120px"><i class="ok" style="width:${Math.min(100, (100 * w) / sched)}%"></i></div>
+      <span class="small muted">بريك ${dur(pauseUsed(sh, "break"))}/${n(cfg.break)}د · حمام ${dur(pauseUsed(sh, "wc"))}/${n(cfg.wc)}د</span>` : ""}
+    <span style="flex:1"></span>
+    ${pr === "working" ? `<button class="btn sm" id="pPause">وقف مؤقت</button><button class="btn sm ghost" id="pEnd">إنهاء اليوم</button>` : ""}</div>`;
+}
+function agentGate() {
+  const id = S.role, sh = shiftOf(id), pr = presence(id), cfg = S.settings.pause, sc = schedOf(id);
+  if (pr === "off") return `<section class="card gate"><div class="empty"><b>صباح الخير يا ${esc(agentName(id).split(" ")[0])}</b><span>مواعيدك النهارده من ${hourLabel(sc.start)} لـ ${hourLabel(sc.end)}. اضغط «ابدأ يومي» علشان تبدأ المكالمات.</span>
+    <button class="btn primary" id="pStart">ابدأ يومي</button></div></section>`;
+  if (pr === "done") return `<section class="card gate"><div class="empty"><b>خلّصت يومك</b><span>اشتغلت ${dur(workedMs(sh))}. لو قفلت بالغلط، تقدر ترجع.</span><button class="btn" id="pResume">رجوع للشغل</button></div></section>`;
+  const op = openPause(sh), d0 = S.now - op.from, over = d0 > cfg.single * MIN, used = pauseUsed(sh, op.r), lim = cfg[op.r] * MIN;
+  return `<section class="card gate ${over || used > lim ? "over" : ""}"><div class="empty">
+    <span class="tag k-prospect">${REASONS[op.r]}</span><b class="big num" data-since="${op.from}">${dur(d0)}</b>
+    <span>واقف من ${timeS(op.from)}. المسموح للوقفة الواحدة ${n(cfg.single)} د، وفاضلك من ${REASONS[op.r]} النهارده ${dur(Math.max(0, lim - used))}.</span>
+    ${over || used > lim ? `<p class="note warn">تخطيت الوقت المسموح، والمدير وصله تنبيه.</p>` : ""}
+    <button class="btn primary" id="pBack">رجعت الشغل</button></div></section>`;
+}
+function bindAgentPresence() {
+  const id = S.role;
+  const b = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
+  b("#pStart", () => { startShift(id); toast("بدأت يومك. بالتوفيق"); render(); });
+  b("#pResume", () => { shiftOf(id).end = null; render(); });
+  b("#pBack", () => { const op = openPause(shiftOf(id)); op.to = S.now; toast(`رجعت الشغل بعد ${dur(op.to - op.from)}`); render(); });
+  b("#pEnd", () => confirmDlg({ title: "إنهاء اليوم؟", body: `اشتغلت ${dur(workedMs(shiftOf(id)))} النهارده. بعد الإنهاء مش هتقدر تعمل مكالمات لحد ما ترجع.`, action: "إنهاء اليوم", onOk: () => { shiftOf(id).end = S.now; render(); } }));
+  b("#pPause", () => {
+    const sh = shiftOf(id), cfg = S.settings.pause;
+    openDialog(`<div class="dlg">${dlgHead("وقف مؤقت", "اختار السبب. الوقت بيتحسب لحد ما تدوس «رجعت الشغل».")}
+      <div class="dlg-b"><div class="types" role="radiogroup">${Object.entries(REASONS).map(([k, l], i) => { const left = Math.max(0, cfg[k] * MIN - pauseUsed(sh, k)); return `
+        <label class="type"><input type="radio" name="why" value="${k}" ${i === 0 ? "checked" : ""}><span><b>${l}</b><small>فاضلك النهارده ${dur(left)} من ${n(cfg[k])} د</small></span></label>`; }).join("")}</div></div>
+      <div class="dlg-f"><button class="btn primary" id="whyOk">ابدأ الوقفة</button><button class="btn" data-close>إلغاء</button></div></div>`, { onOpen: (dl) => {
+      $("#whyOk", dl).onclick = () => { const r = $('input[name="why"]:checked', dl).value; sh.pauses.push({ r, from: S.now, to: null }); dl.close(); render(); };
+    } });
+  });
+}
+
 V.settings = () => {
   const st0 = S.settings, f = S.ui.setDraft || (S.ui.setDraft = JSON.parse(JSON.stringify(st0)));
   const dirty = JSON.stringify(f) !== JSON.stringify(st0);
   const hourOpts = (sel) => Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === sel ? "selected" : ""}>${hourLabel(h)}</option>`).join("");
   $("#main").innerHTML = `
-    <div class="page-head"><div class="t"><h1>الإعدادات</h1><span class="muted">قواعد إعادة المحاولة للمتبرعين اللي مردوش. التغيير بيتطبق على المكالمات الجاية بس.</span></div></div>
+    <div class="page-head"><div class="t"><h1>الإعدادات</h1><span class="muted">إعادة المحاولة، مواعيد الايجنتس، والوقفات المسموحة.</span></div></div>
     <form class="card" id="setForm" novalidate>
       <div class="card-h"><h2>إعادة المحاولة</h2></div>
       <div class="card-b">
@@ -1064,8 +1209,21 @@ V.settings = () => {
         </div>
         <span class="hint" style="margin-top:-6px">أي إعادة محاولة معادها بعد آخر الشغل بتتنقل لأول اليوم اللي بعده.</span>
         <p class="note" id="setPrev" aria-live="polite"></p>
-        <p class="small" id="setErr" role="alert" style="color:var(--bad)"></p>
       </div>
+      <div class="card-h" style="border-top:1px solid var(--line)"><h2>مواعيد عمل الايجنتس</h2><span class="muted small">علشان نحسب كل واحد اشتغل كام ساعة من يومه</span></div>
+      <div class="tw"><table class="sched"><thead><tr><th>الايجنت</th><th>من</th><th>لحد</th><th class="num">ساعات اليوم</th></tr></thead><tbody>
+        ${S.agents.map((a) => { const sc = f.sched[a.id] || { start: 10, end: 18 }; return `<tr><td><b>${esc(a.name)}</b></td>
+          <td><select class="input" data-sch="${a.id}" data-k="start" aria-label="بداية مواعيد ${esc(a.name)}">${hourOpts(sc.start)}</select></td>
+          <td><select class="input" data-sch="${a.id}" data-k="end" aria-label="نهاية مواعيد ${esc(a.name)}">${hourOpts(sc.end)}</select></td>
+          <td class="num" data-hrs="${a.id}">${n(sc.end - sc.start)}</td></tr>`; }).join("")}</tbody></table></div>
+      <div class="card-h" style="border-top:1px solid var(--line)"><h2>الوقفات المسموحة في اليوم</h2><span class="muted small">لو الايجنت عدّاها بيوصلك تنبيه بصوت</span></div>
+      <div class="card-b"><div class="form-row">
+        <label class="field"><span>البريك</span><div class="suffix"><input class="input num" type="number" min="0" max="240" id="pBreak" value="${f.pause.break}"><span>دقيقة في اليوم</span></div></label>
+        <label class="field"><span>الحمام</span><div class="suffix"><input class="input num" type="number" min="0" max="120" id="pWc" value="${f.pause.wc}"><span>دقيقة في اليوم</span></div></label>
+        <label class="field"><span>أقصى مدة للوقفة الواحدة</span><div class="suffix"><input class="input num" type="number" min="1" max="120" id="pSingle" value="${f.pause.single}"><span>دقيقة</span></div>
+          <span class="hint">أي وقفة أطول من كده بتطلّع تنبيه وهي لسه شغالة.</span></label>
+      </div>
+      <p class="small" id="setErr" role="alert" style="color:var(--bad)"></p></div>
       <div class="sticky-f"><button class="btn primary" id="setSave" type="submit" ${dirty ? "" : "disabled"}>حفظ الإعدادات</button>
         <button class="btn" id="setReset" type="button" ${dirty ? "" : "disabled"}>إلغاء التغييرات</button>
         <button class="btn ghost" id="setDef" type="button">رجّع الافتراضي</button><span class="muted small">${dirty ? "فيه تغييرات لسه متحفظتش" : ""}</span></div>
@@ -1074,12 +1232,18 @@ V.settings = () => {
     $$("[data-retry]").forEach((i) => (f.retry[i.dataset.retry] = Number(i.value)));
     f.perDay = Number($("#perDay").value); f.maxTries = Number($("#maxTries").value);
     f.dayStart = Number($("#dayStart").value); f.dayEnd = Number($("#dayEnd").value);
+    $$("[data-sch]").forEach((el) => { const id = el.dataset.sch; f.sched[id] = f.sched[id] || { start: 10, end: 18 }; f.sched[id][el.dataset.k] = Number(el.value); });
+    Object.entries(f.sched).forEach(([id, sc]) => { const c = $(`[data-hrs="${id}"]`); if (c) c.textContent = n(sc.end - sc.start); });
+    f.pause = { break: Number($("#pBreak").value), wc: Number($("#pWc").value), single: Number($("#pSingle").value) };
   };
   const problem = () => {
     if (Object.values(f.retry).some((h) => !(Number.isInteger(h) && h >= 1 && h <= 72))) return "ساعات إعادة المحاولة لازم تكون رقم صحيح من ١ لـ ٧٢.";
     if (!(Number.isInteger(f.perDay) && f.perDay >= 1 && f.perDay <= 10)) return "أقصى محاولات في اليوم لازم تكون من ١ لـ ١٠.";
     if (!(Number.isInteger(f.maxTries) && f.maxTries >= 1 && f.maxTries <= 30)) return "عدد المحاولات قبل القفل لازم يكون من ١ لـ ٣٠.";
     if (f.dayEnd <= f.dayStart) return "آخر مواعيد الشغل لازم يكون بعد أولها.";
+    const bad = S.agents.find((a) => f.sched[a.id] && f.sched[a.id].end <= f.sched[a.id].start);
+    if (bad) return `مواعيد ${bad.name}: النهاية لازم تكون بعد البداية.`;
+    if (![f.pause.break, f.pause.wc].every((x) => Number.isInteger(x) && x >= 0 && x <= 240) || !(Number.isInteger(f.pause.single) && f.pause.single >= 1 && f.pause.single <= 120)) return "دقايق الوقفات لازم تكون أرقام صحيحة (البريك والحمام من ٠، والوقفة الواحدة من ١ لـ ١٢٠).";
     return "";
   };
   const preview = () => {
@@ -1100,7 +1264,7 @@ V.settings = () => {
   };
   $("#setForm").oninput = () => { read(); preview(); };
   $("#setForm").onchange = () => { read(); preview(); };
-  $("#setForm").onsubmit = (e) => { e.preventDefault(); read(); if (problem()) return preview(); S.settings = JSON.parse(JSON.stringify(f)); S.ui.setDraft = null; toast("اتحفظت إعدادات إعادة المحاولة"); render(); };
+  $("#setForm").onsubmit = (e) => { e.preventDefault(); read(); if (problem()) return preview(); S.settings = JSON.parse(JSON.stringify(f)); S.ui.setDraft = null; toast("اتحفظت الإعدادات"); render(); };
   $("#setReset").onclick = () => { S.ui.setDraft = null; render(); };
   $("#setDef").onclick = () => { S.ui.setDraft = JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); render(); };
   preview();
@@ -1434,10 +1598,21 @@ V.mine = () => {
 
 /* ================= prototype controls ================= */
 $("#asRole").onchange = (e) => { S.role = e.target.value === "manager" ? "manager" : Number(e.target.value); S.ui.cur = null; S.ui.form = null; go(S.role === "manager" ? "home" : "today"); };
+$("#plus15").onclick = () => { S.now += 15 * MIN; render(); };
 $("#plusH").onclick = () => { S.now += H; render(); };
 $("#plusD").onclick = () => { S.now = dayStart(S.now) + D + 10 * H; toast("بدأ يوم شغل جديد — الساعة ١٠ الصبح"); render(); };
 $("#simDay").onclick = () => { const k = simulate(.8); toast(`الفريق عمل ${n(k)} مكالمة`); render(); };
 $("#resetBtn").onclick = () => confirmDlg({ title: "إعادة البيانات التجريبية؟", body: "أي داتا رفعتها أو مكالمات سجلتها في التجربة دي هتتمسح.", action: "إعادة البيانات", danger: true, onOk: () => { seed(); render(); toast("رجعت البيانات التجريبية"); } });
 
 seed(); render();
+/* the simulated clock also runs in real time; only live counters update, the page is not redrawn */
+setInterval(() => {
+  S.now += 1000;
+  $$("[data-since]").forEach((el) => (el.textContent = dur(S.now - Number(el.dataset.since))));
+  if (Math.floor(S.now / 1000) % 30 === 0) {
+    $("#clock").textContent = when(S.now);
+    updateAlarm();
+    if (S.view === "attendance" && S.role === "manager" && !$("#dlg").open && !$("#drawer").open) render();
+  }
+}, 1000);
 </script>
