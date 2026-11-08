@@ -2,7 +2,8 @@
 
 Same app as call-center-prototype.html, but it starts with no data at all, with
 the real team's users, uses the real clock, and keeps its data in the browser
-(localStorage) so a refresh does not lose the test.
+(IndexedDB, which holds hundreds of thousands of names; localStorage stops at ~5 MB)
+so a refresh does not lose the test.
 
     python3 build_empty.py
 """
@@ -22,7 +23,7 @@ def js_list(xs):
 
 EMPTY_SEED = f'''function seed() {{
   S = {{ settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), now: Date.now(), r: rng(11), seq: 1, role: "manager", view: "home", param: null,
-    agents: [], batches: [], donors: [], calls: [], moves: [], shifts: {{}}, ui: {{}} }};
+    agents: [], batches: [], donors: [], calls: [], moves: [], shifts: {{}}, allocLog: [], ui: {{}} }};
   const leaders = {js_list(LEADERS)}, agents = {js_list(AGENTS)};
   S.agents = [...leaders, ...agents].map((name, i) => ({{ id: 100 + i, name, target: i < leaders.length ? 30 : 40, active: true }}));
   S.settings.sched = Object.fromEntries(S.agents.map((a) => [a.id, {{ start: 10, end: 18 }}]));
@@ -51,28 +52,50 @@ rep('<button class="dbtn" id="simDay" type="button">محاكاة يوم شغل �
 rep('$("#simDay").onclick', 'if ($("#simDay")) $("#simDay").onclick')
 
 # keep the test data in this browser so a refresh does not lose it
-rep("\nseed(); render();", '''
-const STORE = "callcenter-test-v1";
-function persist() { try { localStorage.setItem(STORE, JSON.stringify({ ...S, r: null, ui: {} })); } catch { /* storage is optional */ } }
-function restore() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORE) || "null");
-    if (!saved || !saved.agents) return false;
-    S = { ...saved, r: rng(11), ui: {}, role: "manager", view: "home", param: null, now: Math.max(saved.now, Date.now()) };
-    return true;
-  } catch { return false; }
+rep("\nseed(); render();", """
+const DB = "callcenter-test", OLD_KEY = "callcenter-test-v1";
+function idb(mode, fn) {
+  return new Promise((ok, bad) => {
+    const open = indexedDB.open(DB, 1);
+    open.onupgradeneeded = () => open.result.createObjectStore("s");
+    open.onerror = () => bad(open.error);
+    open.onsuccess = () => { const tx = open.result.transaction("s", mode), req = fn(tx.objectStore("s")); tx.oncomplete = () => ok(req.result); tx.onerror = () => bad(tx.error); };
+  });
+}
+let saveTimer = null, lastSaveMs = 0;
+async function saveNow() {
+  clearTimeout(saveTimer); saveTimer = null;
+  const t0 = performance.now();
+  try { await idb("readwrite", (st) => st.put({ ...S, r: null, ui: {} }, "state")); lastSaveMs = performance.now() - t0; }
+  catch (e) { toast("معرفناش نحفظ البيانات في المتصفح. التغييرات هتفضل لحد ما تقفل الصفحة بس."); }
+}
+/* saving 300k names takes a moment, so changes are batched into one save */
+function persist() { if (!saveTimer) saveTimer = setTimeout(saveNow, Math.min(8000, 1500 + lastSaveMs * 3)); }
+window.addEventListener("pagehide", () => { if (saveTimer) saveNow(); });
+function upgrade(saved) {
+  // state saved by an older version of this file
+  saved.settings = { ...JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), ...saved.settings };
+  saved.settings.alloc = { ...DEFAULT_SETTINGS.alloc, ...(saved.settings.alloc || {}) };
+  saved.settings.cycle = { ...DEFAULT_SETTINGS.cycle, ...(saved.settings.cycle || {}) };
+  saved.allocLog = saved.allocLog || [];
+  return { ...saved, r: rng(11), ui: {}, role: "manager", view: "home", param: null, now: Math.max(saved.now, Date.now()) };
 }
 const renderInner = render;
 render = function () { renderInner(); persist(); };
-if (!restore()) seed();
-render();''')
+(async () => {
+  let saved = null;
+  try { saved = await idb("readonly", (st) => st.get("state")); } catch { /* storage blocked */ }
+  if (!saved) { try { saved = JSON.parse(localStorage.getItem(OLD_KEY) || "null"); } catch { saved = null; } }
+  if (saved && saved.agents) S = upgrade(saved); else seed();
+  render();
+})();""")
 rep("function render() {", "let render = function () {")
 open_close = out.index("let render = function () {")
 # close the converted function expression with a semicolon at its end brace
 end = out.index("\n}\n", open_close)
 out = out[:end] + "\n};\n" + out[end + 3:]
-rep('onOk: () => { seed(); render();', 'onOk: () => { seed(); render(); persist();')
-rep("  S.now += 1000;", "  S.now += 1000;\n  if (Math.floor(S.now / 1000) % 30 === 0) persist();")
+rep('onOk: () => { seed(); render();', 'onOk: () => { seed(); render(); saveNow();')
+rep("  S.now += 1000;", "  S.now += 1000;\n  if (Math.floor(S.now / 1000) % 60 === 0) persist();")
 
 (HERE / "call-center-test-empty.html").write_text(out, encoding="utf-8")
 

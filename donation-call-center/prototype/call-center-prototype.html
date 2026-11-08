@@ -175,6 +175,13 @@ tfoot td { background: var(--surface-2); border-top: 1px solid var(--line-strong
 .gate .empty { padding: 48px 16px; gap: 10px; } .gate .big { font-size: 40px; color: var(--fg); } .gate.over { border-color: var(--bad); }
 .sched td { padding: 8px 10px; } .sched select { height: 32px; }
 .chip-btn { display: inline-flex; align-items: center; gap: 5px; } .chip-btn svg { width: 14px; height: 14px; }
+.split { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: 16px; }
+.section-card .card-h h2 { display: inline-flex; gap: 8px; align-items: center; } .section-card .card-h h2 svg { width: 18px; height: 18px; color: var(--accent); }
+.big-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } .big-pair div { display: flex; flex-direction: column; } .big-pair b { font-size: 32px; line-height: 1.1; } .big-pair span { color: var(--muted); font-size: 13px; }
+.pager { display: flex; gap: 10px; align-items: center; justify-content: center; padding: 10px 14px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.progress-box { display: flex; flex-direction: column; gap: 8px; padding: 6px 0; } .meter.big { height: 10px; }
+.meter i.indet { width: 35%; animation: indet 1.2s ease-in-out infinite alternate; } @keyframes indet { from { margin-inline-start: 0; } to { margin-inline-start: 65%; } }
+.formula { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 4px; background: var(--neutral-soft); color: var(--fg-2); }
 
 /* meters */
@@ -300,7 +307,7 @@ dialog.drawer { margin: 0; margin-right: auto; height: 100%; max-height: 100%; w
   <label class="grp">تشغيل بصفة <select id="asRole" aria-label="تشغيل بصفة"></select></label>
   <span class="sep" aria-hidden="true"></span>
   <span class="grp">الوقت: <b id="clock" class="num"></b>
-    <button class="dbtn" id="plus15" type="button">+ ١٥ دقيقة</button><button class="dbtn" id="plusH" type="button">+ ساعة</button><button class="dbtn" id="plusD" type="button">اليوم التالي</button>
+    <button class="dbtn" id="plus15" type="button">+ ١٥ دقيقة</button><button class="dbtn" id="plusH" type="button">+ ساعة</button><button class="dbtn" id="plusD" type="button">اليوم التالي</button><button class="dbtn" id="plusW" type="button">+ أسبوع</button><button class="dbtn" id="plusM" type="button">+ شهر</button>
     <button class="dbtn" id="simDay" type="button">محاكاة يوم شغل للفريق</button></span>
   <span class="sep" aria-hidden="true"></span>
   <button class="dbtn" id="resetBtn" type="button">إعادة البيانات التجريبية</button>
@@ -353,7 +360,8 @@ const OUTCOMES = [
   { code: "will_call", label: "هيكلمنا", cat: "positive", group: "ans", follow: "opt" },
   { code: "send_info", label: "طلب تفاصيل واتس", cat: "pending", group: "ans", follow: "opt" },
   { code: "donated_elsewhere", label: "اتبرع لجهة أخرى", cat: "negative", group: "ans", closes: true },
-  { code: "do_not_call", label: "غير مهتم", cat: "negative", group: "ans", closes: true },
+  { code: "not_interested", label: "غير مهتم", cat: "negative", group: "ans" },
+  { code: "do_not_call", label: "طلب عدم الاتصال نهائيًا", cat: "negative", group: "ans", closes: true },
   { code: "no_answer", label: "لا يرد", cat: "unreachable", group: "none", follow: "opt" },
   { code: "busy", label: "مشغول", cat: "unreachable", group: "none", follow: "opt" },
   { code: "phone_off", label: "مغلق", cat: "unreachable", group: "none", follow: "opt" },
@@ -364,10 +372,12 @@ const OUTCOMES = [
 const OC = Object.fromEntries(OUTCOMES.map((o) => [o.code, o]));
 const GROUPS = [["ans", "رد عليك"], ["none", "مردّش"], ["num", "مشكلة في الرقم"]];
 const REPORT_GROUPS = [...GROUPS, ["dup", "مكرر"]];
-const STATUS_EXTRA = { new: { label: "جديد", cat: "" }, exhausted: { label: "استنفد المحاولات", cat: "negative" }, nophone: { label: "كل أرقامه غير صالحة", cat: "invalid" } };
+const STATUS_EXTRA = { new: { label: "جديد", cat: "" }, exhausted: { label: "استنفد المحاولات", cat: "negative" }, nophone: { label: "كل أرقامه غير صالحة", cat: "invalid" }, hold: { label: "متوقف مؤقتًا", cat: "unreachable" } };
 const DEFAULT_SETTINGS = { retry: { no_answer: 4, busy: 2, phone_off: 6 }, perDay: 3, maxTries: 5, dayStart: 10, dayEnd: 20,
   pause: { break: 45, single: 15 }, sched: { 100: { start: 10, end: 18 }, 101: { start: 10, end: 18 }, 102: { start: 12, end: 20 }, 103: { start: 10, end: 18 }, 104: { start: 10, end: 18 }, 105: { start: 12, end: 20 } },
-  teams: { leaders: [104, 105], of: { 100: 104, 101: 104, 102: 105, 103: 105 } } };
+  teams: { leaders: [104, 105], of: { 100: 104, 101: 104, 102: 105, 103: 105 } },
+  alloc: { auto: true, windowDays: 7, minHistory: 20, min: 10, max: 200, fresh: 40, days: 1, excluded: [] },
+  cycle: { noAnsLimit: 3, holdMonths: 2 } };
 const hourLabel = (h) => `${n(h % 12 || 12)} ${h < 12 ? "ص" : "م"}`;
 /* when to try again: after N hours, but never past the working day or the daily cap */
 function nextRetry(from, hours, triesToday, cfg = S.settings) {
@@ -423,7 +433,7 @@ const agentName = (id) => agentById(id)?.name || "—";
 const batchById = (id) => S.batches.find((b) => b.id === id);
 const goodPhones = (d) => d.phones.filter((p) => !p.bad);
 function isClosed(d) {
-  return d.dnc || ["donated", "donated_elsewhere", "do_not_call", "duplicate", "exhausted", "nophone"].includes(d.status);
+  return d.dnc || ["donated", "donated_elsewhere", "do_not_call", "duplicate", "exhausted", "nophone", "hold"].includes(d.status);
 }
 const isDue = (d) => d.next !== null && d.next <= S.now;
 
@@ -433,11 +443,13 @@ function logCall(d, agentId, x) {
   S.calls.push({ id: S.seq++, donor: d.id, agent: agentId, batch: d.batch, outcome: o.code, phone: d.phones[x.phone]?.n, amount: x.amount || null,
     pay: x.pay || null, follow: x.follow || null, notes: x.notes || "", t: S.now, converted });
   if (converted) { d.kind = "donor"; d.convertedAt = S.now; }
+  invalidate();
   if (o.code !== "duplicate") d.attempts++;
   d.status = o.code; d.next = x.follow || null; d.last = S.now;
   if (o.group === "ans") d.tries = 0;
   if (o.group === "none") {
     d.tries++;
+    if (o.code === "no_answer") d.noAns = (d.noAns || 0) + 1;
     if (d.tries >= S.settings.maxTries) { d.status = "exhausted"; d.next = null; }
     else if (!x.follow) {
       const triesToday = S.calls.filter((c) => c.donor === d.id && c.t >= dayStart(S.now) && OC[c.outcome].group === "none").length;
@@ -452,12 +464,14 @@ function logCall(d, agentId, x) {
   if (o.code === "donated") { d.total += x.amount; d.pledge = null; d.pledgeDue = null; }
   if (o.code === "pledged") { d.pledge = x.amount; d.pledgeDue = x.follow; }
   if ((o.code === "will_call" || o.code === "send_info") && !x.follow) d.next = dayStart(S.now) + D + S.settings.dayStart * H;
-  if (o.code === "do_not_call") d.dnc = true;
+  if (o.code === "do_not_call") d.dnc = true;                    // permanent: never distributed again
   if (isClosed(d)) d.next = null;
+  if (o.code === "not_interested") putOnHold(d, "not_interested");
+  else if (o.code === "no_answer" && d.noAns >= S.settings.cycle.noAnsLimit) putOnHold(d, "no_answer");
   return converted;
 }
-function assign(d, to, why) { S.moves.push({ t: S.now, donor: d.id, from: d.agent, to, why }); d.agent = to; }
-const openOf = (agentId) => S.donors.filter((d) => d.agent === agentId && !isClosed(d));
+function assign(d, to, why) { S.moves.push({ t: S.now, donor: d.id, from: d.agent, to, why }); d.agent = to; invalidate(); }
+const openOf = (agentId) => mineOf(agentId).filter((d) => !isClosed(d));
 
 function queueOf(agentId) {
   const list = openOf(agentId);
@@ -472,22 +486,123 @@ function distributeBatch(batchId, agentIds, mode, per) {
   let pool = S.donors.filter((d) => d.batch === batchId && d.agent === null && !isClosed(d));
   if (mode === "fixed") pool = pool.slice(0, per * agentIds.length);
   const given = Object.fromEntries(agentIds.map((a) => [a, 0]));
-  pool.forEach((d, i) => { const to = agentIds[i % agentIds.length]; assign(d, to, "توزيع"); given[to]++; });
-  return { total: pool.length, given };
+  let i = 0, total = 0;
+  pool.forEach((d) => {
+    // a name back from a hold never goes to the agent who had it last
+    const options = agentIds.filter((a) => a !== d.excludeAgent);
+    if (!options.length) return;
+    const to = agentIds[i % agentIds.length] !== d.excludeAgent ? agentIds[i % agentIds.length] : options[i % options.length];
+    i++; assign(d, to, "توزيع"); d.excludeAgent = null; given[to]++; total++;
+  });
+  return { total, given };
+}
+
+
+/* ================= index (rebuilt lazily after every change) ================= */
+let IDX = null;
+const invalidate = () => { IDX = null; };
+const isPoolItem = (d) => d.agent == null && d.status === "new" && !d.dnc && (d.kind === "prospect" || !!d.returnedAt);
+function idx() {
+  if (IDX) return IDX;
+  const byAgent = new Map(), pool = [];
+  let holds = 0;
+  for (const d of S.donors) {
+    if (d.agent != null) { let a = byAgent.get(d.agent); if (!a) byAgent.set(d.agent, (a = [])); a.push(d); }
+    else if (isPoolItem(d)) pool.push(d);
+    if (d.status === "hold") holds++;
+  }
+  // names coming back from a hold have waited longest, so they go first; then import order
+  pool.sort((a, b) => (a.returnedAt ? 0 : 1) - (b.returnedAt ? 0 : 1) || (a.returnedAt || 0) - (b.returnedAt || 0) || a.id - b.id);
+  return (IDX = { byAgent, pool, holds });
+}
+const mineOf = (agentId) => idx().byAgent.get(agentId) || [];
+
+/* ================= 2-month holds ("لا يرد" ×3 and "غير مهتم") ================= */
+const addMonths = (t, m) => { const d = new Date(t); d.setMonth(d.getMonth() + m); return d.getTime(); };
+const HOLD_REASONS = { no_answer: "لا يرد ٣ مرات", not_interested: "غير مهتم" };
+function putOnHold(d, reason) {
+  S.moves.push({ t: S.now, donor: d.id, from: d.agent, to: null, why: "توقف: " + HOLD_REASONS[reason] });
+  d.lastAgent = d.agent; d.agent = null;
+  d.status = "hold"; d.holdReason = reason; d.holdAt = S.now; d.holdUntil = addMonths(S.now, S.settings.cycle.holdMonths); d.next = null;
+}
+/* after the hold ends the name goes back to the distribution pool, never to the agent who had it last */
+function releaseHolds() {
+  let k = 0;
+  for (const d of S.donors) {
+    if (d.status !== "hold" || d.holdUntil > S.now) continue;
+    d.status = "new"; d.excludeAgent = d.lastAgent; d.returnedAt = d.holdUntil; d.lastHoldReason = d.holdReason;
+    d.cycle = (d.cycle || 1) + 1; d.noAns = 0; d.tries = 0; d.next = null;
+    d.holdReason = null; d.holdUntil = null; k++;
+  }
+  if (k) invalidate();
+  return k;
+}
+
+/* ================= batch size per agent ================= */
+const eligibleAgents = () => S.agents.filter((a) => a.active && !S.settings.alloc.excluded.includes(a.id));
+/* expected attempts one new name takes: answered on try 1, or retried up to the "لا يرد" limit */
+const attemptsPerName = (p, limit) => { let e = 0; for (let k = 0; k < limit; k++) e += Math.pow(1 - p, k); return e; };
+function agentRate(agentId, cfg = S.settings) {
+  const a = cfg.alloc, from = S.now - a.windowDays * D;
+  let attempts = 0, answered = 0; const days = new Set();
+  for (const c of S.calls) {
+    if (c.agent !== agentId || c.t < from || c.t > S.now || c.outcome === "duplicate") continue;
+    attempts++; if (OC[c.outcome].group === "ans") answered++; days.add(dayStart(c.t));
+  }
+  const isNew = attempts < a.minHistory;
+  const p = attempts ? answered / attempts : 0, avgDaily = days.size ? attempts / days.size : 0;
+  const per = attemptsPerName(p, cfg.cycle.noAnsLimit);
+  const raw = isNew ? a.fresh : (avgDaily / per) * a.days;
+  const size = Math.max(a.min, Math.min(a.max, Math.round(raw)));
+  return { attempts, answered, activeDays: days.size, avgDaily, p, per, raw, size, isNew, clamped: !isNew && size !== Math.round(raw) };
+}
+const readyFresh = (agentId) => mineOf(agentId).filter((d) => catOf(d) === "fresh").length;
+
+/* give a new batch to every eligible agent whose ready new names ran out */
+function autoAllocate(force = false) {
+  if (!S.settings.alloc.auto && !force) return 0;
+  const pool = idx().pool;
+  if (!pool.length) return 0;
+  let given = 0;
+  const taken = new Set(), elig = eligibleAgents();
+  // names back from a hold go out right away to the least-loaded agent who is not the last one; with nobody else available they wait
+  const load = new Map(elig.map((a) => [a.id, openOf(a.id).length]));
+  for (const d of pool) {
+    if (!d.returnedAt) continue;
+    const options = elig.filter((a) => a.id !== d.excludeAgent);
+    if (!options.length) continue;
+    const to = options.reduce((m, a) => (load.get(a.id) < load.get(m.id) ? a : m));
+    taken.add(d.id); assign(d, to.id, "رجوع من التوقف"); d.allocAt = S.now; d.excludeAgent = null; load.set(to.id, load.get(to.id) + 1); given++;
+  }
+  for (const a of elig) {
+    if (readyFresh(a.id) > 0) continue;
+    const size = agentRate(a.id).size;
+    let k = 0;
+    for (const d of pool) {
+      if (k >= size) break;
+      if (taken.has(d.id) || d.agent != null || d.excludeAgent === a.id) continue;   // one agent per name, never back to the last agent
+      taken.add(d.id); assign(d, a.id, "دفعة تلقائية"); d.allocAt = S.now; d.excludeAgent = null; k++;
+    }
+    if (k) { S.allocLog.unshift({ t: S.now, agent: a.id, count: k, size }); given += k; }
+    if (taken.size >= pool.length) break;
+  }
+  if (S.allocLog.length > 200) S.allocLog.length = 200;
+  if (given) invalidate();
+  return given;
 }
 
 function simulate(share, hours = 10) {
   const r = S.r, base = dayStart(S.now) + 10 * H;
   if (hours === 10) S.agents.filter((a) => a.active && !shiftOf(a.id, dayStart(base))).forEach((a) => makeShift(a.id, dayStart(base), r));
-  const W = { donated: 11, pledged: 8, will_call: 8, callback: 7, send_info: 4, donated_elsewhere: 2, do_not_call: 13, no_answer: 22, busy: 6, phone_off: 12, wrong_number: 3, not_in_service: 2 };
+  const W = { donated: 11, pledged: 8, will_call: 8, callback: 7, send_info: 4, donated_elsewhere: 2, not_interested: 11, do_not_call: 2, no_answer: 22, busy: 6, phone_off: 12, wrong_number: 3, not_in_service: 2 };
   const codes = Object.keys(W), tot = codes.reduce((s, c) => s + W[c], 0);
   let made = 0;
   for (const a of S.agents.filter((x) => x.active)) {
-    const q = queueOf(a.id).all.filter((d) => d.next === null || d.next <= base + 10 * H);
+    const q = queueOf(a.id).all.filter((d) => !isClosed(d) && (d.next === null || d.next <= base + 10 * H));
     const todo = q.slice(0, Math.round(Math.min(q.length, a.target) * share));
     todo.forEach((d, i) => {
       S.now = base + Math.floor((i / Math.max(1, todo.length)) * hours * H) + Math.floor(r() * (hours < 10 ? 5 : 25)) * MIN;
-      if (d.next && d.next > S.now) return;
+      if ((d.next && d.next > S.now) || isClosed(d) || d.agent !== a.id) return;
       let x = r() * tot, code = codes[0];
       for (const c of codes) { x -= W[c]; if (x <= 0) { code = c; break; } }
       if (d.status === "pledged" && r() < .65) code = "donated";
@@ -524,11 +639,15 @@ const TYPES = { donors: { label: "متبرعين", one: "متبرع", kind: "don
   prospects: { label: "متبرعين محتملين", one: "محتمل", kind: "prospect", hint: "ناس لسه متبرعتش. أول ما حد منهم يتبرع، بيتنقل لقاعدة المتبرعين لوحده." } };
 const kindTag = (d) => d.convertedAt ? `<span class="tag k-conv">اتحوّل لمتبرع</span>` : d.kind === "prospect" ? `<span class="tag k-prospect">محتمل</span>` : `<span class="tag k-donor">متبرع</span>`;
 const typeTag = (t) => `<span class="tag ${t === "prospects" ? "k-prospect" : "k-donor"}">${TYPES[t].label}</span>`;
+function addContacts(batchId, contacts, type) {
+  for (const c of contacts) S.donors.push({ id: S.seq++, batch: batchId, kind: TYPES[type].kind, convertedAt: null, name: c.name, phones: c.phones.map((p) => ({ n: p, bad: false })), notes: c.notes || "",
+    agent: null, status: "new", attempts: 0, tries: 0, noAns: 0, next: null, last: null, pledge: null, pledgeDue: null, total: 0, dnc: false });
+  invalidate();
+}
 function addBatch(name, fileName, contacts, at, type = "donors") {
   const id = S.seq++;
   S.batches.push({ id, name, fileName, at, type, count: contacts.length });
-  contacts.forEach((c) => S.donors.push({ id: S.seq++, batch: id, kind: TYPES[type].kind, convertedAt: null, name: c.name, phones: c.phones.map((p) => ({ n: p, bad: false })), notes: c.notes || "",
-    agent: null, status: "new", attempts: 0, tries: 0, next: null, last: null, pledge: null, pledgeDue: null, total: 0, dnc: false }));
+  addContacts(id, contacts, type);
   return id;
 }
 function rowsToContacts(rows) {
@@ -538,7 +657,7 @@ function rowsToContacts(rows) {
 function seed() {
   const r = rng(11);
   const t = new Date(); t.setHours(11, 20, 0, 0);
-  S = { settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), now: t.getTime(), r, seq: 1, role: "manager", view: "home", param: null, agents: [], batches: [], donors: [], calls: [], moves: [], shifts: {}, ui: {} };
+  S = { settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), now: t.getTime(), r, seq: 1, role: "manager", view: "home", param: null, agents: [], batches: [], donors: [], calls: [], moves: [], shifts: {}, allocLog: [], ui: {} };
   S.agents = [["سارة علي", 45], ["محمد حسن", 45], ["منى إبراهيم", 40], ["يوسف خالد", 40], ["أحمد سمير", 30], ["هبة عادل", 30]].map(([name, target], i) => ({ id: 100 + i, name, target, active: true }));
   const save = S.now;
   S.now = save - 5 * D;
@@ -569,11 +688,14 @@ const scopeIds = () => S.role === "manager" ? S.agents.map((a) => a.id) : isLead
 const roleName = (id) => isLead(id) ? "تيم ليدر" : "ايجنت";
 
 /* ================= navigation ================= */
-const NAV_M = [["home", "الرئيسية", "home"], ["batches", "ملفات الداتا", "files"], ["donors", "قاعدة المتبرعين", "heart"], ["team", "الايجنتس", "team"], ["attendance", "الحضور والبريك", "clock"], ["follow", "المتابعات", "bell"], ["reports", "التقارير", "chart"], ["settings", "الإعدادات", "gear"]];
-const NAV_A = [["today", "مكالمات النهارده", "list"], ["c-sheet", "شغل الشيت", "files"], ["c-pledge", "تحصيل الوعود", "heart"], ["c-callback", "معاودة الاتصال", "clock"], ["mine", "أدائي", "chart"]];
+const NAV_M = [["home", "الرئيسية", "home"], ["batches", "ملفات الداتا", "files"], ["pool", "مخزون الداتا الجديدة", "list"], ["donors", "قاعدة المتبرعين", "heart"], ["team", "الايجنتس", "team"], ["attendance", "الحضور والبريك", "clock"], ["follow", "المتابعات", "bell"], ["reports", "التقارير", "chart"], ["settings", "الإعدادات", "gear"]];
+const NAV_A = [["today", "مكالمات النهارده", "list"], ["c-donors", "المتبرعين بتوعي", "heart"], ["c-fresh", "الداتا الجديدة", "files"], ["c-pledge", "تحصيل الوعود", "share"], ["c-callback", "معاودة الاتصال", "clock"], ["mine", "أدائي", "chart"]];
 function go(view, param = null) { S.view = view; S.param = param; render(); window.scrollTo(0, 0); }
 
 function render() {
+  invalidate();
+  releaseHolds();
+  autoAllocate();
   const isM = S.role === "manager";
   $("#asRole").innerHTML = `<option value="manager">المدير</option>` + S.agents.map((a) => `<option value="${a.id}" ${a.active ? "" : "disabled"}>${roleName(a.id)}: ${esc(a.name)}${a.active ? "" : " (موقوف)"}</option>`).join("");
   $("#asRole").value = String(S.role);
@@ -583,12 +705,12 @@ function render() {
   const overdue = isM ? S.donors.filter((d) => d.agent && !isClosed(d) && isDue(d) && OC[d.status]?.group === "ans").length : 0;
   const nav = isM ? NAV_M : lead ? [...NAV_A, ["reports", "تقارير فريقي", "team"]] : NAV_A;
   const alarmN = isM ? allAlarms().filter((x) => x.lvl === "bad").length : 0;
-  const active = S.view === "batch" ? "batches" : S.view;
-  $("#nav").innerHTML = nav.map(([k, l, i]) => `<a href="#" data-go="${k}" ${active === k ? 'aria-current="page"' : ""}>${ic(i)}<span>${l}</span>${k === "follow" && overdue ? `<span class="count" title="مستحق دلوقتي">${n(overdue)}</span>` : ""}${k === "attendance" && alarmN ? `<span class="count" title="تنبيهات">${n(alarmN)}</span>` : ""}${!isM && k.startsWith("c-") ? `<span class="count soft">${n(catCount(S.role, k.slice(2)))}</span>` : ""}</a>`).join("");
+  const active = S.view === "batch" ? "batches" : S.view === "my-donors" ? "c-donors" : S.view;
+  $("#nav").innerHTML = nav.map(([k, l, i]) => `<a href="#" data-go="${k}" ${active === k ? 'aria-current="page"' : ""}>${ic(i)}<span>${l}</span>${k === "follow" && overdue ? `<span class="count" title="مستحق دلوقتي">${n(overdue)}</span>` : ""}${k === "attendance" && alarmN ? `<span class="count" title="تنبيهات">${n(alarmN)}</span>` : ""}${k === "pool" && idx().pool.length ? `<span class="count soft">${n(idx().pool.length)}</span>` : ""}${!isM && k.startsWith("c-") ? `<span class="count soft">${n(catCount(S.role, k.slice(2)))}</span>` : ""}</a>`).join("");
   $$("#nav a").forEach((a) => (a.onclick = (e) => { e.preventDefault(); go(a.dataset.go); }));
   const me = isM ? { name: "مدير الكول سنتر", sub: "مدير" } : { name: agentName(S.role), sub: roleName(S.role) };
   $("#who").innerHTML = `<span class="avatar">${esc(me.name[0])}</span><div><span>${esc(me.name)}</span><small>${me.sub}</small></div>`;
-  const fn = V[S.view] && (isM ? NAV_M.some(([k]) => k === S.view) || S.view === "batch" : nav.some(([k]) => k === S.view)) ? V[S.view] : V[isM ? "home" : "today"];
+  const fn = V[S.view] && (isM ? NAV_M.some(([k]) => k === S.view) || S.view === "batch" : nav.some(([k]) => k === S.view) || S.view === "my-donors") ? V[S.view] : V[isM ? "home" : "today"];
   fn();
   if (!isM) {
     if (presence(S.role) !== "working" && S.view !== "mine" && S.view !== "reports") $("#main").innerHTML = agentGate();
@@ -637,7 +759,7 @@ function stats(range, { agent, batch, agents } = {}) {
     fulfilled: donated.filter((c) => S.calls.some((x) => x.donor === c.donor && x.outcome === "pledged" && x.t < c.t)).length,
     interested: by("will_call").length, followReq: by("callback").length + by("send_info").length,
     noAns: by("no_answer").length + by("busy").length, off: by("phone_off").length,
-    refused: by("donated_elsewhere").length + by("do_not_call").length,
+    refused: by("donated_elsewhere").length + by("not_interested").length + by("do_not_call").length,
     badNum: by("wrong_number").length + by("not_in_service").length,
     conv: pct(new Set(donated.map((c) => c.donor)).size, answeredDonors.size),
     converted: cs.filter((c) => c.converted).length, dups, all: inRange,
@@ -720,20 +842,33 @@ function uploadDialog(presetType) {
 function readFile(file) {
   const err = $("#upErr");
   if (!S.ui.upType) { err.textContent = "اختار نوع الداتا الأول: متبرعين ولا متبرعين محتملين."; return; }
+  const body = $("#upBody"), started = performance.now();
+  const busy = (msg) => { body.innerHTML = `<div class="steps"><span class="on">جاري تجهيز الملف…</span></div><div class="progress-box"><div class="meter big"><i class="info indet"></i></div><p class="small" id="upMsg">${msg}</p></div><p class="small" id="upErr" role="alert" style="color:var(--bad)"></p>`; };
+  const fail = (msg) => { uploadDialog(); $("#upErr").textContent = msg; };
   const reader = new FileReader();
-  reader.onerror = () => (err.textContent = "معرفناش نقرأ الملف. جرّب تحفظه تاني من إكسيل وارفعه.");
+  reader.onerror = () => fail("معرفناش نقرأ الملف. جرّب تحفظه تاني من إكسيل وارفعه.");
+  busy(`بنقرا «${esc(file.name)}» (${n(Math.round(file.size / 1024))} ك.ب)…`);
+  const done = (rows) => { S.ui.readMs = performance.now() - started; reviewStep(file.name, rows); };
   if (/\.csv$/i.test(file.name)) {
-    reader.onload = () => reviewStep(file.name, String(reader.result).replace(/^﻿/, "").split(/\r?\n/).filter((l) => l.trim()).map((l) => l.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map((c) => c.replace(/^"|"$/g, ""))));
+    reader.onload = () => setTimeout(() => {
+      const lines = String(reader.result).replace(/^﻿/, "").split(/\r?\n/);
+      const rows = [];
+      for (const l of lines) if (l.trim()) rows.push(l.includes('"') ? l.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map((c) => c.replace(/^"|"$/g, "")) : l.split(","));
+      rows.length ? done(rows) : fail("الملف فاضي.");
+    }, 30);
     reader.readAsText(file, "utf-8");
   } else {
-    if (!window.XLSX) { err.textContent = "قراءة ملفات الإكسيل محتاجة اتصال بالإنترنت. احفظ الملف كـ CSV وارفعه، أو جرّب الملف التجريبي."; return; }
+    if (!window.XLSX) return fail("قراءة ملفات الإكسيل محتاجة اتصال بالإنترنت. احفظ الملف كـ CSV وارفعه، أو جرّب الملف التجريبي.");
     reader.onload = () => {
-      try {
-        const wb = XLSX.read(new Uint8Array(reader.result), { type: "array" });
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: "" });
-        if (!rows.length) throw new Error("empty");
-        reviewStep(file.name, rows);
-      } catch { err.textContent = "الملف ده مش ملف إكسيل صالح، أو أول شيت فيه فاضي."; }
+      $("#upMsg").textContent = "بنفك ملف الإكسيل… الملفات الكبيرة (مئات الآلاف من الصفوف) ممكن تاخد دقيقة، والصفحة هتقف لحظات لحد ما يخلص.";
+      setTimeout(() => {
+        try {
+          const wb = XLSX.read(new Uint8Array(reader.result), { type: "array", dense: true });
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: "" });
+          if (!rows.length) throw new Error("empty");
+          done(rows);
+        } catch { fail("الملف ده مش ملف إكسيل صالح، أو أول شيت فيه فاضي."); }
+      }, 60);
     };
     reader.readAsArrayBuffer(file);
   }
@@ -757,23 +892,33 @@ function guessRoles(rows) {
   if (!roles.includes("name")) { const i = roles.findIndex((r) => r === "skip"); if (i >= 0) roles[i] = "name"; }
   return { hasHeader, head, body, roles };
 }
-function analyze(body, roles) {
-  const existing = new Map(); S.donors.forEach((d) => d.phones.forEach((p) => existing.set(p.n, d)));
-  const seen = new Set(); const out = { contacts: [], multi: 0, dupFile: 0, dupSystem: [], invalid: [] };
-  body.forEach((row, i) => {
-    const name = roles.map((r, k) => (r === "name" ? String(row[k] ?? "").trim() : "")).filter(Boolean).join(" ");
-    const notes = roles.map((r, k) => (r === "notes" ? String(row[k] ?? "").trim() : "")).filter(Boolean).join(" — ");
-    const raw = roles.flatMap((r, k) => (r === "phone" ? splitPhones(row[k]) : []));
-    if (!name && !raw.length) return;
-    const phones = [...new Set(raw.map(normPhone).filter(Boolean))];
-    if (!name || !phones.length) { out.invalid.push({ line: i + 1, name, raw: raw.join(" / "), why: !name ? "مفيش اسم" : "مفيش رقم صحيح" }); return; }
-    if (phones.some((p) => seen.has(p))) { out.dupFile++; return; }
-    const ex = phones.map((p) => existing.get(p)).find(Boolean);
-    phones.forEach((p) => seen.add(p));
-    if (ex) { out.dupSystem.push({ name, other: ex.kind === "donor" ? "قاعدة المتبرعين" : batchById(ex.batch).name }); return; }
-    if (phones.length > 1) out.multi++;
-    out.contacts.push({ name, phones, notes });
-  });
+const CHUNK = 5000;
+const tick = () => new Promise((r) => setTimeout(r, 0));
+/* rows are checked in chunks so the page stays responsive and can show progress */
+async function analyzeAsync(body, roles, existing, onProgress, token) {
+  const seen = new Set(); const out = { contacts: [], multi: 0, dupFile: 0, dupSystem: [], dupSystemN: 0, invalid: [], invalidN: 0 };
+  const nameCols = [], phoneCols = [], noteCols = [];
+  roles.forEach((r, k) => (r === "name" ? nameCols : r === "phone" ? phoneCols : r === "notes" ? noteCols : []).push(k));
+  for (let start = 0; start < body.length; start += CHUNK) {
+    if (token.cancel) return null;
+    const end = Math.min(body.length, start + CHUNK);
+    for (let i = start; i < end; i++) {
+      const row = body[i];
+      const name = nameCols.map((k) => String(row[k] ?? "").trim()).filter(Boolean).join(" ");
+      const raw = []; for (const k of phoneCols) raw.push(...splitPhones(row[k]));
+      if (!name && !raw.length) continue;
+      const phones = [...new Set(raw.map(normPhone).filter(Boolean))];
+      if (!name || !phones.length) { out.invalidN++; if (out.invalid.length < 200) out.invalid.push({ line: i + 1, name, raw: raw.join(" / "), why: !name ? "مفيش اسم" : "مفيش رقم صحيح" }); continue; }
+      if (phones.some((p) => seen.has(p))) { out.dupFile++; continue; }
+      const ex = phones.map((p) => existing.get(p)).find(Boolean);
+      phones.forEach((p) => seen.add(p));
+      if (ex) { out.dupSystemN++; if (out.dupSystem.length < 5) out.dupSystem.push({ name, other: ex.kind === "donor" ? "قاعدة المتبرعين" : batchById(ex.batch).name }); continue; }
+      if (phones.length > 1) out.multi++;
+      out.contacts.push({ name, phones, notes: noteCols.map((k) => String(row[k] ?? "").trim()).filter(Boolean).join(" — ") });
+    }
+    onProgress(end / body.length);
+    await tick();
+  }
   return out;
 }
 function reviewStep(fileName, rows) {
@@ -781,47 +926,74 @@ function reviewStep(fileName, rows) {
   const roleOpts = [["name", "الاسم"], ["phone", "رقم تليفون"], ["notes", "ملاحظات"], ["skip", "تجاهل العمود"]];
   const baseName = fileName.replace(/\.[^.]+$/, "");
   const body = $("#upBody");
+  const existing = new Map(); for (const d of S.donors) for (const p of d.phones) existing.set(p.n, d);
+  let token = { cancel: false }, a = null;
+  const dlg = $("#dlg");
+  const footer = () => {
+    let f = $(".dlg-f", dlg);
+    if (!f) { f = document.createElement("div"); f.className = "dlg-f"; $(".dlg", dlg).appendChild(f); }
+    const ok = g.roles.includes("name") && g.roles.includes("phone");
+    f.innerHTML = `<button class="btn primary" id="saveBatch" ${ok && a && a.contacts.length ? "" : "disabled"}>${a ? `حفظ الداتا (${n(a.contacts.length)} اسم)` : "بنراجع الصفوف…"}</button><button class="btn" data-close>إلغاء</button><span class="small" id="nameErr" role="alert" style="color:var(--bad)"></span>`;
+    $("[data-close]", f).onclick = () => { token.cancel = true; dlg.close(); };
+    $("#saveBatch", f).onclick = save;
+  };
+  const checksHtml = () => !a ? `<div class="progress-box"><div class="meter big"><i class="info" id="anBar" style="width:0%"></i></div><p class="small" id="anMsg">بنراجع ${n(g.body.length)} صف…</p></div>` : `<div class="checks">
+        <div class="okc"><b>${n(a.contacts.length)}</b><span>${S.ui.upType === "prospects" ? "متبرع محتمل" : "متبرع"} هيتضاف</span></div>
+        <div><b>${n(a.multi)}</b><span>منهم ليهم أكتر من رقم</span></div>
+        <div class="warnc"><b>${n(a.dupFile + a.dupSystemN)}</b><span>مكرر: ${n(a.dupFile)} في الملف · ${n(a.dupSystemN)} في داتا سابقة</span></div>
+        <div class="badc"><b>${n(a.invalidN)}</b><span>صف مش هيتضاف</span></div></div>
+        ${a.invalidN ? `<details><summary class="small" style="cursor:pointer">عرض الصفوف اللي مش هتتضاف (${a.invalidN > 200 ? `أول ٢٠٠ من ${n(a.invalidN)}` : n(a.invalidN)})</summary>
+          <div class="tw" style="margin-top:8px;max-height:260px"><table><thead><tr><th class="num">الصف</th><th>الاسم</th><th>الرقم في الملف</th><th>السبب</th></tr></thead><tbody>
+          ${a.invalid.map((x) => `<tr><td class="num">${n(x.line + (g.hasHeader ? 1 : 0))}</td><td>${esc(x.name || "—")}</td><td class="ltr">${esc(x.raw || "—")}</td><td>${x.why}</td></tr>`).join("")}</tbody></table></div></details>` : ""}
+        ${a.dupSystemN ? `<p class="note warn">المكرر في داتا سابقة مش هيتضاف تاني، علشان المتبرع ميجيلوش اتصالين من ايجنتين. مثال: ${esc(a.dupSystem[0].name)} موجود في «${esc(a.dupSystem[0].other)}».</p>` : ""}
+        ${S.ui.upType === "prospects" ? `<p class="note">الأسماء دي هتدخل مخزون الداتا الجديدة${S.settings.alloc.auto ? "، وتتسند على دفعات للموظفين لوحدها حسب إعدادات الدفعات." : ". التوزيع التلقائي مقفول، فهتوزعها بإيدك."}</p>` : ""}`;
   const draw = () => {
-    const a = analyze(g.body, g.roles);
     const ok = g.roles.includes("name") && g.roles.includes("phone");
     body.innerHTML = `
       <div class="steps"><span class="done">١. نوع الداتا والملف ✓</span><span aria-hidden="true">←</span><span class="on">٢. المراجعة والتسمية</span></div>
-      <div class="actions">${typeTag(S.ui.upType)}<span class="tag ltr">${esc(fileName)}</span><span class="muted small">${n(g.body.length)} صف</span><button class="btn ghost sm" id="another" type="button">اختيار ملف تاني</button></div>
+      <div class="actions">${typeTag(S.ui.upType)}<span class="tag ltr">${esc(fileName)}</span><span class="muted small">${n(g.body.length)} صف${S.ui.readMs ? ` · اتقرا في ${n(Math.round(S.ui.readMs / 100) / 10)} ث` : ""}</span><button class="btn ghost sm" id="another" type="button">اختيار ملف تاني</button></div>
       <label class="field"><span class="req">اسم الداتا</span><input class="input" id="bName" value="${esc(S.ui.draftName)}" placeholder="${S.ui.upType === "prospects" ? "مثال: محتملين معرض الكتاب — نوفمبر" : "مثال: متبرعين زكاة المال — نوفمبر"}" maxlength="60" autocomplete="off">
         <span class="hint">الاسم ده اللي هيظهر للفريق وفي التقارير. اسم الملف: <span class="ltr">${esc(baseName)}</span></span></label>
       <div class="field"><span>الأعمدة</span><span class="hint">اتعرّفنا على الأعمدة تلقائي. صحّح لو في عمود متحدد غلط.</span>
         <div class="tw card"><table><thead><tr>${g.roles.map((_, i) => `<th>${esc(g.hasHeader ? g.head[i] || `عمود ${n(i + 1)}` : `عمود ${n(i + 1)}`)}</th>`).join("")}</tr></thead><tbody>
           <tr>${g.roles.map((r, i) => `<td><select class="input" data-col="${i}" aria-label="نوع العمود ${n(i + 1)}" style="height:30px">${roleOpts.map(([v, l]) => `<option value="${v}" ${v === r ? "selected" : ""}>${l}</option>`).join("")}</select></td>`).join("")}</tr>
           ${g.body.slice(0, 3).map((row) => `<tr>${g.roles.map((_, i) => `<td class="muted" dir="auto">${esc(row[i] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>
-      ${ok ? `<div class="checks">
-        <div class="okc"><b>${n(a.contacts.length)}</b><span>${S.ui.upType === "prospects" ? "متبرع محتمل" : "متبرع"} هيتضاف</span></div>
-        <div><b>${n(a.multi)}</b><span>منهم ليهم أكتر من رقم</span></div>
-        <div class="warnc"><b>${n(a.dupFile + a.dupSystem.length)}</b><span>مكرر: ${n(a.dupFile)} في الملف · ${n(a.dupSystem.length)} في داتا سابقة</span></div>
-        <div class="badc"><b>${n(a.invalid.length)}</b><span>صف مش هيتضاف</span></div></div>
-        ${a.invalid.length ? `<details><summary class="small" style="cursor:pointer">عرض الصفوف اللي مش هتتضاف (${n(a.invalid.length)})</summary>
-          <div class="tw" style="margin-top:8px"><table><thead><tr><th class="num">الصف</th><th>الاسم</th><th>الرقم في الملف</th><th>السبب</th></tr></thead><tbody>
-          ${a.invalid.map((x) => `<tr><td class="num">${n(x.line + (g.hasHeader ? 1 : 0))}</td><td>${esc(x.name || "—")}</td><td class="ltr">${esc(x.raw || "—")}</td><td>${x.why}</td></tr>`).join("")}</tbody></table></div></details>` : ""}
-        ${a.dupSystem.length ? `<p class="note warn">المكرر في داتا سابقة مش هيتضاف تاني، علشان المتبرع ميجيلوش اتصالين من ايجنتين. مثال: ${esc(a.dupSystem[0].name)} موجود في «${esc(a.dupSystem[0].other)}».</p>` : ""}`
-      : `<p class="note warn">حدد عمود للاسم وعمود واحد على الأقل للتليفون علشان نكمل.</p>`}`;
+      <div id="checksBox">${ok ? checksHtml() : `<p class="note warn">حدد عمود للاسم وعمود واحد على الأقل للتليفون علشان نكمل.</p>`}</div>`;
     $("#bName").oninput = (e) => { S.ui.draftName = e.target.value; $("#nameErr").textContent = ""; };
-    $$("[data-col]", body).forEach((s) => (s.onchange = () => { g.roles[Number(s.dataset.col)] = s.value; draw(); }));
-    $("#another", body).onclick = () => uploadDialog();
-    const dlg = $("#dlg");
-    let f = $(".dlg-f", dlg);
-    if (!f) { f = document.createElement("div"); f.className = "dlg-f"; $(".dlg", dlg).appendChild(f); }
-    f.innerHTML = `<button class="btn primary" id="saveBatch" ${ok && a.contacts.length ? "" : "disabled"}>حفظ الداتا (${n(a.contacts.length)} متبرع)</button><button class="btn" data-close>إلغاء</button><span class="small" id="nameErr" role="alert" style="color:var(--bad)"></span>`;
-    $("[data-close]", f).onclick = () => dlg.close();
-    $("#saveBatch", f).onclick = () => {
-      const name = $("#bName").value.trim();
-      if (!name) { $("#nameErr").textContent = "اكتب اسم للداتا الأول."; $("#bName").focus(); return; }
-      if (S.batches.some((b) => b.name === name)) { $("#nameErr").textContent = "فيه داتا بنفس الاسم. اختار اسم مختلف."; $("#bName").focus(); return; }
-      const id = addBatch(name, fileName, a.contacts, S.now, S.ui.upType);
-      dlg.close();
-      toast(`اتحفظت داتا «${name}» (${TYPES[S.ui.upType].label}) — ${n(a.contacts.length)} اسم`);
-      go("batch", id);
-    };
+    $$("[data-col]", body).forEach((s) => (s.onchange = () => { g.roles[Number(s.dataset.col)] = s.value; run(); }));
+    $("#another", body).onclick = () => { token.cancel = true; uploadDialog(); };
+    footer();
   };
-  draw();
+  const run = async () => {
+    token.cancel = true; token = { cancel: false }; a = null; draw();
+    if (!(g.roles.includes("name") && g.roles.includes("phone"))) return;
+    const mine = token;
+    const res = await analyzeAsync(g.body, g.roles, existing, (p) => { const bar = $("#anBar"); if (bar) { bar.style.width = `${Math.round(p * 100)}%`; $("#anMsg").textContent = `بنراجع الصفوف… ${n(Math.round(p * 100))}٪`; } }, mine);
+    if (!res || mine.cancel) return;
+    a = res; $("#checksBox").innerHTML = checksHtml(); footer();
+  };
+  async function save() {
+    const name = $("#bName").value.trim();
+    if (!name) { $("#nameErr").textContent = "اكتب اسم للداتا الأول."; $("#bName").focus(); return; }
+    if (S.batches.some((b) => b.name === name)) { $("#nameErr").textContent = "فيه داتا بنفس الاسم. اختار اسم مختلف."; $("#bName").focus(); return; }
+    const type = S.ui.upType, contacts = a.contacts;
+    $("#saveBatch").disabled = true;
+    $("#checksBox").innerHTML = `<div class="progress-box"><div class="meter big"><i class="ok" id="svBar" style="width:0%"></i></div><p class="small" id="svMsg">بنحفظ ${n(contacts.length)} اسم…</p></div>`;
+    const id = addBatch(name, fileName, [], S.now, type);
+    for (let i = 0; i < contacts.length; i += CHUNK) {
+      addContacts(id, contacts.slice(i, i + CHUNK), type);
+      const p = Math.min(1, (i + CHUNK) / contacts.length);
+      $("#svBar").style.width = `${Math.round(p * 100)}%`; $("#svMsg").textContent = `بنحفظ… ${n(Math.min(contacts.length, i + CHUNK))} من ${n(contacts.length)}`;
+      await tick();
+    }
+    batchById(id).count = contacts.length;
+    invalidate();
+    const given = type === "prospects" ? autoAllocate() : 0;
+    dlg.close();
+    toast(`اتحفظت داتا «${name}» — ${n(contacts.length)} اسم${given ? `، واتسند منها ${n(given)} على دفعات` : ""}`);
+    go(type === "prospects" ? "pool" : "batch", type === "prospects" ? null : id);
+  }
+  run();
   setTimeout(() => $("#bName")?.focus(), 30);
 }
 
@@ -834,7 +1006,8 @@ V.home = () => {
   const overdue = S.donors.filter((d) => d.agent && !isClosed(d) && isDue(d) && OC[d.status]?.group === "ans");
   const orphan = S.agents.filter((a) => !a.active && openOf(a.id).length);
   const alerts = [
-    ...undist.map(({ b, left }) => ({ k: "info", i: "files", t: `داتا «${b.name}» فيها ${n(left)} متبرع لسه متوزعوش`, s: `اترفعت ${when(b.at)}`, btn: "وزّع الداتا", go: ["batch", b.id] })),
+    ...(idx().pool.length && (!S.settings.alloc.auto || !eligibleAgents().length) ? [{ k: "info", i: "list", t: `${n(idx().pool.length)} اسم في مخزون الداتا الجديدة مستنيين توزيع`, s: S.settings.alloc.auto ? "مفيش موظف مؤهل يستلم دفعات" : "التوزيع التلقائي مقفول", btn: "المخزون", go: ["pool"] }] : []),
+    ...undist.filter(({ b }) => b.type !== "prospects").map(({ b, left }) => ({ k: "info", i: "files", t: `داتا «${b.name}» فيها ${n(left)} متبرع لسه متوزعوش`, s: `اترفعت ${when(b.at)}`, btn: "وزّع الداتا", go: ["batch", b.id] })),
     ...(overdue.length ? [{ k: "bad", i: "clock", t: `${n(overdue.length)} متابعة فات معادها`, s: "وعود ومعاودات اتصال الايجنتس لسه مكلموهاش", btn: "عرض المتابعات", go: ["follow"] }] : []),
     ...orphan.map((a) => ({ k: "warn", i: "team", t: `${a.name} موقوف ومعاه ${n(openOf(a.id).length)} متبرع مفتوح`, s: "انقل الداتا دي لايجنت تاني", btn: "نقل الداتا", go: ["team"] })),
   ];
@@ -864,6 +1037,60 @@ V.home = () => {
   $("#toRep").onclick = () => go("reports");
 };
 
+/* ---------- pages of a long list ---------- */
+const PAGE = 50;
+function pageSlice(list, ui, key = "page") {
+  const pages = Math.max(1, Math.ceil(list.length / PAGE));
+  ui[key] = Math.min(Math.max(1, ui[key] || 1), pages);
+  return { rows: list.slice((ui[key] - 1) * PAGE, ui[key] * PAGE), pages, page: ui[key] };
+}
+const pagerHtml = (id, { page, pages }, total) => pages > 1 ? `<div class="pager" id="${id}"><button class="btn sm" data-pg="-1" ${page <= 1 ? "disabled" : ""}>السابق</button>
+  <span class="small muted">صفحة ${n(page)} من ${n(pages)} · ${n(total)} اسم</span><button class="btn sm" data-pg="1" ${page >= pages ? "disabled" : ""}>التالي</button></div>` : "";
+function bindPager(id, ui, redraw, key = "page") { $$(`#${id} [data-pg]`).forEach((b) => (b.onclick = () => { ui[key] = (ui[key] || 1) + Number(b.dataset.pg); redraw(); })); }
+
+/* ================= manager: new-data pool, batches and holds ================= */
+V.pool = () => {
+  const ui = S.ui.pool || (S.ui.pool = { reason: "", page: 1 });
+  const { pool, holds } = idx(), cfg = S.settings;
+  const waitingDiff = pool.filter((d) => d.excludeAgent != null).length;
+  const elig = eligibleAgents();
+  const rows = S.agents.map((a) => {
+    const mine = mineOf(a.id).filter((d) => d.kind === "prospect" || d.returnedAt);
+    const open = mine.filter((d) => !isClosed(d));
+    return { a, r: agentRate(a.id), eligible: elig.includes(a), ready: open.filter((d) => catOf(d) === "fresh").length,
+      waiting: open.filter((d) => d.next !== null && d.next > S.now).length, open: open.length, last: S.allocLog.find((x) => x.agent === a.id) };
+  });
+  const holdList = S.donors.filter((d) => d.status === "hold" && (!ui.reason || d.holdReason === ui.reason)).sort((x, y) => x.holdUntil - y.holdUntil);
+  const pg = pageSlice(holdList, ui);
+  $("#main").innerHTML = `
+    <div class="page-head"><div class="t"><h1>مخزون الداتا الجديدة</h1><span class="muted">الأسماء الجديدة بتتسند على دفعات، وكل ما موظف يخلص دفعته بياخد دفعة تانية لوحده.</span></div>
+      <div class="actions"><button class="btn" id="toSet2">${ic("gear")}إعدادات الدفعات</button><button class="btn primary" id="allocNow" ${pool.length ? "" : "disabled"}>وزّع دفعات دلوقتي</button></div></div>
+    ${cfg.alloc.auto ? "" : `<p class="note warn">التوزيع التلقائي مقفول من الإعدادات. الأسماء هتفضل في المخزون لحد ما توزعها بإيدك أو تضغط «وزّع دفعات دلوقتي».</p>`}
+    <div class="stats">
+      <div class="stat"><span>في المخزون</span><b>${n(pool.length)}</b><small>اسم مستني يتسند</small></div>
+      <div class="stat"><span>منتظرين موظف مختلف</span><b>${n(waitingDiff)}</b><small>رجعوا من التوقف ومش هيرجعوا لآخر موظف</small></div>
+      <div class="stat"><span>متوقفين مؤقتًا</span><b>${n(holds)}</b><small>«لا يرد» ${n(cfg.cycle.noAnsLimit)} مرات أو «غير مهتم»</small></div>
+      <div class="stat"><span>موظفين بيستلموا دفعات</span><b>${n(elig.length)}</b><small>من ${n(S.agents.length)}</small></div>
+    </div>
+    <section class="card"><div class="card-h"><h2>الدفعات لكل موظف</h2><span class="muted small">آخر ${n(cfg.alloc.windowDays)} أيام · المعادلة في الإعدادات</span></div><div class="tw"><table><thead><tr>
+      <th>الموظف</th><th class="num">مكالمات في اليوم</th><th class="num">نسبة الرد</th><th class="num">حجم الدفعة</th><th class="num">جاهز دلوقتي</th><th class="num">مستني معاد</th><th class="num">مسند ليه (مفتوح)</th><th>آخر دفعة</th></tr></thead><tbody>
+      ${rows.map(({ a, r, eligible, ready, waiting, open, last }) => `<tr><td><b>${esc(a.name)}</b>${eligible ? "" : ' <span class="st">مش بيستلم دفعات</span>'}</td>
+        <td class="num">${r.isNew ? '<span class="muted">—</span>' : n(Math.round(r.avgDaily))}</td><td class="num">${r.isNew ? '<span class="muted">—</span>' : pctS(Math.round(r.p * 1000) / 10)}</td>
+        <td class="num"><b>${n(r.size)}</b>${r.isNew ? '<span class="sub">موظف جديد</span>' : r.clamped ? '<span class="sub">على الحد</span>' : ""}</td>
+        <td class="num" style="${eligible && !ready ? "color:var(--warn);font-weight:600" : ""}">${n(ready)}</td><td class="num">${n(waiting)}</td><td class="num">${n(open)}</td>
+        <td class="small">${last ? `${n(last.count)} اسم · ${when(last.t)}` : '<span class="muted">—</span>'}</td></tr>`).join("")}</tbody></table></div></section>
+    <section class="card"><div class="card-h"><h2>متوقفين مؤقتًا</h2>${segHtml("hrSeg", [["", "الكل"], ["no_answer", HOLD_REASONS.no_answer], ["not_interested", HOLD_REASONS.not_interested]], ui.reason)}</div>
+      ${holdList.length ? `<div class="tw"><table><thead><tr><th>الاسم</th><th>السبب</th><th>اتوقف</th><th>يرجع للتوزيع</th><th>آخر موظف</th><th>الداتا</th></tr></thead><tbody>
+        ${pg.rows.map((d) => `<tr class="link" data-donor="${d.id}"><td><b>${esc(d.name)}</b> ${kindTag(d)}</td><td>${HOLD_REASONS[d.holdReason]}</td><td class="small">${dateS(d.holdAt)}</td>
+          <td class="small">${dateS(d.holdUntil)}</td><td>${esc(agentName(d.lastAgent))}</td><td class="small">${esc(batchById(d.batch).name)}</td></tr>`).join("")}</tbody></table></div>${pagerHtml("hPg", pg, holdList.length)}`
+        : empty("مفيش أسماء متوقفة", `لما اسم يوصل «لا يرد» ${n(cfg.cycle.noAnsLimit)} مرات أو يتسجل «غير مهتم» بيظهر هنا لحد معاد رجوعه.`)}</section>`;
+  $("#toSet2").onclick = () => go("settings");
+  $("#allocNow").onclick = () => { const k = autoAllocate(true); toast(k ? `اتسند ${n(k)} اسم على دفعات` : "كل الموظفين معاهم أسماء جاهزة، أو مفيش موظف مؤهل للأسماء الباقية"); render(); };
+  bindSeg("hrSeg", (v) => { ui.reason = v; ui.page = 1; render(); });
+  bindPager("hPg", ui, render);
+  bindDonorRows($("#main"), render);
+};
+
 V.batches = () => {
   const tf = S.ui.btype || "all";
   const rows = [...S.batches].filter((b) => tf === "all" || b.type === tf).sort((a, b) => b.at - a.at).map((b) => {
@@ -876,7 +1103,7 @@ V.batches = () => {
   });
   $("#main").innerHTML = `
     <div class="page-head"><div class="t"><h1>ملفات الداتا</h1><span class="muted">كل ملف بترفعه بيتحفظ هنا بالاسم اللي تختاره، ومنه بتوزع على الايجنتس وتنزّله بنتايج الشغل.</span></div>
-      <div class="actions"><button class="btn primary" id="upBtn">${ic("upload")}رفع ملف داتا</button></div></div>
+      <div class="actions"><button class="btn" id="toPool">${ic("list")}مخزون الداتا الجديدة (${n(idx().pool.length)})</button><button class="btn primary" id="upBtn">${ic("upload")}رفع ملف داتا</button></div></div>
     ${segHtml("tSeg", [["all", `الكل (${n(S.batches.length)})`], ["donors", `متبرعين (${n(S.batches.filter((b) => b.type === "donors").length)})`], ["prospects", `متبرعين محتملين (${n(S.batches.filter((b) => b.type === "prospects").length)})`]], tf)}
     <section class="card">${rows.length ? `<div class="tw"><table><thead><tr><th>اسم الداتا</th><th>الحالة</th><th class="num">الأسماء</th><th>اتوزع</th><th>اتصلنا بـ</th><th class="num">تبرعات</th><th class="num">اتحوّلوا</th><th><span class="sr">تنزيل</span></th></tr></thead><tbody>
       ${rows.map((r) => `<tr class="link" data-b="${r.b.id}"><td><b>${esc(r.b.name)}</b> ${typeTag(r.b.type)}<span class="sub">اترفعت ${when(r.b.at)} · <span class="ltr">${esc(r.b.fileName)}</span></span></td>
@@ -890,6 +1117,7 @@ V.batches = () => {
   bindSeg("tSeg", (v) => { S.ui.btype = v; render(); });
   $$("[data-dl]").forEach((b) => (b.onclick = (e) => { e.stopPropagation(); exportBatch(Number(b.dataset.dl)); }));
   $("#upBtn").onclick = () => uploadDialog(tf === "all" ? null : tf);
+  $("#toPool").onclick = () => go("pool");
   $$("tr[data-b]").forEach((tr) => (tr.onclick = () => go("batch", Number(tr.dataset.b))));
 };
 
@@ -927,7 +1155,7 @@ V.batch = () => {
     <section class="card"><div class="card-h"><h2>المتبرعين</h2>
       <div class="toolbar"><div class="search">${ic("search")}<input class="input" id="q" placeholder="ابحث بالاسم أو الرقم" value="${esc(ui.q)}" aria-label="ابحث في متبرعين الداتا دي"></div>
         <select class="input" id="fAgent" aria-label="الايجنت"><option value="">كل الايجنتس</option><option value="none" ${ui.agent === "none" ? "selected" : ""}>لم يوزع</option>${S.agents.map((a) => `<option value="${a.id}" ${String(ui.agent) === String(a.id) ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select>
-        <select class="input" id="fStatus" aria-label="الحالة"><option value="">كل الحالات</option>${["new", ...OUTCOMES.map((o) => o.code), "exhausted", "nophone"].map((c) => `<option value="${c}" ${ui.status === c ? "selected" : ""}>${esc(statusOf(c).label)}</option>`).join("")}</select></div></div>
+        <select class="input" id="fStatus" aria-label="الحالة"><option value="">كل الحالات</option>${["new", ...OUTCOMES.map((o) => o.code), "hold", "exhausted", "nophone"].map((c) => `<option value="${c}" ${ui.status === c ? "selected" : ""}>${esc(statusOf(c).label)}</option>`).join("")}</select></div></div>
       <div id="bulk" hidden style="padding:10px 16px;border-bottom:1px solid var(--line);background:var(--accent-soft);display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b id="selN"></b>
         <select class="input" id="bulkTo" aria-label="نقل المحدد إلى"><option value="">انقل المحدد إلى…</option>${active.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("")}</select>
         <button class="btn primary sm" id="bulkGo" disabled>نقل</button></div>
@@ -965,9 +1193,11 @@ V.batch = () => {
     const list = ds.filter((d) => (!q || d.name.includes(q) || (qd && d.phones.some((p) => p.n.includes(qd))))
       && (!ui.agent || (ui.agent === "none" ? !d.agent : d.agent === Number(ui.agent))) && (!ui.status || d.status === ui.status));
     const filtered = q || ui.agent || ui.status;
-    $("#tbl").innerHTML = list.length ? donorTable(list.slice(0, 200), { select: true }) + (list.length > 200 ? `<p class="muted small" style="padding:10px 14px">معروض أول ٢٠٠ من ${n(list.length)}. استخدم البحث أو الفلاتر.</p>` : "")
+    const pg = pageSlice(list, ui);
+    $("#tbl").innerHTML = list.length ? donorTable(pg.rows, { select: true }) + pagerHtml("bPg", pg, list.length)
       : empty(filtered ? "مفيش نتايج للبحث أو الفلاتر دي" : "مفيش متبرعين", "", filtered ? `<button class="btn sm" id="clr">مسح الفلاتر</button>` : "");
     const clr = $("#clr"); if (clr) clr.onclick = () => { ui.q = ""; ui.agent = ""; ui.status = ""; render(); };
+    bindPager("bPg", ui, drawTable);
     bindDonorRows($("#tbl"), render);
     $("#bulk").hidden = true;
   };
@@ -980,14 +1210,14 @@ V.batch = () => {
     ids.forEach((id) => assign(S.donors.find((d) => d.id === id), to, "نقل يدوي"));
     toast(`اتنقل ${n(ids.length)} متبرع إلى ${agentName(to)}`); render();
   };
-  let t; $("#q").oninput = (e) => { clearTimeout(t); t = setTimeout(() => { ui.q = e.target.value; drawTable(); }, 200); };
-  $("#fAgent").onchange = (e) => { ui.agent = e.target.value; drawTable(); };
-  $("#fStatus").onchange = (e) => { ui.status = e.target.value; drawTable(); };
+  let t; $("#q").oninput = (e) => { clearTimeout(t); t = setTimeout(() => { ui.q = e.target.value; ui.page = 1; drawTable(); }, 200); };
+  $("#fAgent").onchange = (e) => { ui.agent = e.target.value; ui.page = 1; drawTable(); };
+  $("#fStatus").onchange = (e) => { ui.status = e.target.value; ui.page = 1; drawTable(); };
   drawTable();
 };
 
 V.donors = () => {
-  const ui = S.ui.reg || (S.ui.reg = { src: "all", q: "" });
+  const ui = S.ui.reg || (S.ui.reg = { src: "all", q: "", page: 1 });
   const all = S.donors.filter((d) => d.kind === "donor");
   const conv = all.filter((d) => d.convertedAt);
   const listOf = () => all.filter((d) => (ui.src === "all" || (ui.src === "conv" ? d.convertedAt : !d.convertedAt)))
@@ -1006,31 +1236,33 @@ V.donors = () => {
       <div class="search">${ic("search")}<input class="input" id="rq" placeholder="ابحث بالاسم أو الرقم" value="${esc(ui.q)}" aria-label="ابحث في قاعدة المتبرعين"></div></div>
       <div id="regT"></div></section>`;
   const draw = () => {
-    const list = listOf();
+    const list = listOf(), pg = pageSlice(list, ui);
     $("#regT").innerHTML = list.length ? `<div class="tw"><table><thead><tr><th>المتبرع</th><th>الأرقام</th><th>جه من</th><th>الحالة</th><th class="num">إجمالي تبرعاته</th><th>اتحوّل لمتبرع</th><th>الايجنت</th></tr></thead><tbody>
-      ${list.slice(0, 300).map((d) => `<tr class="link" data-donor="${d.id}"><td><b>${esc(d.name)}</b> ${d.convertedAt ? kindTag(d) : ""}</td>
+      ${pg.rows.map((d) => `<tr class="link" data-donor="${d.id}"><td><b>${esc(d.name)}</b> ${d.convertedAt ? kindTag(d) : ""}</td>
         <td><span class="ltr num">${esc(goodPhones(d)[0]?.n || d.phones[0].n)}</span>${d.phones.length > 1 ? ` <span class="tag">+${n(d.phones.length - 1)}</span>` : ""}</td>
         <td>${esc(batchById(d.batch).name)}</td><td>${st(d.status)}</td><td class="num">${d.total ? money(d.total) : '<span class="muted">—</span>'}</td>
-        <td>${d.convertedAt ? when(d.convertedAt) : '<span class="muted">—</span>'}</td><td>${d.agent ? esc(agentName(d.agent)) : '<span class="muted">—</span>'}</td></tr>`).join("")}</tbody></table></div>`
+        <td>${d.convertedAt ? when(d.convertedAt) : '<span class="muted">—</span>'}</td><td>${d.agent ? esc(agentName(d.agent)) : '<span class="muted">—</span>'}</td></tr>`).join("")}</tbody></table></div>${pagerHtml("rPg", pg, list.length)}`
       : empty("مفيش نتايج", ui.q ? "جرّب اسم أو رقم تاني." : "لما متبرع محتمل يتبرع هيظهر هنا.");
+    bindPager("rPg", ui, draw);
     bindDonorRows($("#regT"), render);
   };
-  bindSeg("srcSeg", (v) => { ui.src = v; render(); });
-  let t; $("#rq").oninput = (e) => { clearTimeout(t); t = setTimeout(() => { ui.q = e.target.value; draw(); }, 200); };
+  bindSeg("srcSeg", (v) => { ui.src = v; ui.page = 1; render(); });
+  let t; $("#rq").oninput = (e) => { clearTimeout(t); t = setTimeout(() => { ui.q = e.target.value; ui.page = 1; draw(); }, 200); };
   $("#dlReg").onclick = () => exportRows("قاعدة المتبرعين", listOf());
   draw();
 };
 
 /* ---------- export with agents' feedback ---------- */
 const xdt = (t) => { if (!t) return ""; const d = new Date(t), z = (x) => String(x).padStart(2, "0"); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`; };
-function rowFor(d) {
-  const cs = S.calls.filter((c) => c.donor === d.id).sort((a, b) => a.t - b.t);
+function rowFor(d, callsOf) {
+  const cs = (callsOf ? callsOf.get(d.id) || [] : S.calls.filter((c) => c.donor === d.id)).slice().sort((a, b) => a.t - b.t);
   const last = cs[cs.length - 1], lastNote = [...cs].reverse().find((c) => c.notes);
   const lastDon = [...cs].reverse().find((c) => c.outcome === "donated");
   const good = goodPhones(d).map((p) => p.n), bad = d.phones.filter((p) => p.bad).map((p) => p.n);
   return {
     "الاسم": d.name, "رقم 1": good[0] || "", "رقم 2": good[1] || "", "رقم 3": good.slice(2).join(" / "), "أرقام غير صالحة": bad.join(" / "),
     "النوع": d.convertedAt ? "اتحوّل لمتبرع" : d.kind === "prospect" ? "متبرع محتمل" : "متبرع", "الداتا": batchById(d.batch).name,
+    "متوقف لحد": d.status === "hold" ? `${xdt(d.holdUntil)} (${HOLD_REASONS[d.holdReason]})` : "", "طلب عدم الاتصال": d.dnc ? "نعم" : "",
     "الايجنت": d.agent ? agentName(d.agent) : "لم يوزع", "آخر نتيجة": statusOf(d.status).label, "عدد المكالمات": cs.length,
     "آخر مكالمة": last ? xdt(last.t) : "", "إجمالي التبرع": d.total || "", "طريقة الدفع": lastDon?.pay || "",
     "مبلغ الوعد": d.status === "pledged" ? d.pledge : "", "معاد التحصيل/المتابعة": d.next ? xdt(d.next) : "",
@@ -1047,7 +1279,8 @@ function callRows(donors) {
 }
 const exportBatch = (id) => { const b = batchById(id); exportRows(b.name, S.donors.filter((d) => d.batch === id)); };
 async function exportRows(title, donors) {
-  const rows = donors.map(rowFor), calls = callRows(donors);
+  const callsOf = new Map(); for (const c of S.calls) { let l = callsOf.get(c.donor); if (!l) callsOf.set(c.donor, (l = [])); l.push(c); }
+  const rows = donors.map((d) => rowFor(d, callsOf)), calls = callRows(donors);
   const stamp = new Date(S.now).toISOString().slice(0, 10);
   const safe = title.replace(/[\\/:*?"<>|]/g, "-");
   let blob, filename;
@@ -1200,7 +1433,7 @@ V.settings = () => {
   const dirty = JSON.stringify(f) !== JSON.stringify(st0);
   const hourOpts = (sel) => Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${h === sel ? "selected" : ""}>${hourLabel(h)}</option>`).join("");
   $("#main").innerHTML = `
-    <div class="page-head"><div class="t"><h1>الإعدادات</h1><span class="muted">إعادة المحاولة، مواعيد الايجنتس، والوقفات المسموحة.</span></div></div>
+    <div class="page-head"><div class="t"><h1>الإعدادات</h1><span class="muted">إعادة المحاولة، دورة التوقف، دفعات الداتا الجديدة، الفرق، المواعيد والبريك.</span></div></div>
     <form class="card" id="setForm" novalidate>
       <div class="card-h"><h2>إعادة المحاولة</h2></div>
       <div class="card-b">
@@ -1220,12 +1453,38 @@ V.settings = () => {
         <span class="hint" style="margin-top:-6px">أي إعادة محاولة معادها بعد آخر الشغل بتتنقل لأول اليوم اللي بعده.</span>
         <p class="note" id="setPrev" aria-live="polite"></p>
       </div>
+      <div class="card-h" style="border-top:1px solid var(--line)"><h2>دورة «لا يرد» و«غير مهتم»</h2></div>
+      <div class="card-b"><div class="form-row">
+        <label class="field"><span>عدد مرات «لا يرد» قبل التوقف</span><div class="suffix"><input class="input num" type="number" min="1" max="10" id="cNoAns" value="${f.cycle.noAnsLimit}"><span>مرات</span></div>
+          <span class="hint">بين المحاولات بتتطبق مواعيد إعادة المحاولة اللي فوق.</span></label>
+        <label class="field"><span>مدة التوقف</span><div class="suffix"><input class="input num" type="number" min="1" max="12" id="cHold" value="${f.cycle.holdMonths}"><span>شهور</span></div>
+          <span class="hint">من تاريخ آخر «لا يرد» أو تاريخ «غير مهتم». بعدها الاسم يرجع للتوزيع على موظف غير آخر واحد كان معاه، بعداد محاولات جديد وسجله القديم محفوظ.</span></label></div>
+        <p class="muted small">«طلب عدم الاتصال نهائيًا» مختلف: الاسم بيتقفل ومش بيرجع للتوزيع أبدًا.</p></div>
+      <div class="card-h" style="border-top:1px solid var(--line)"><h2>توزيع الداتا الجديدة على دفعات</h2><label class="small"><input type="checkbox" id="aAuto" ${f.alloc.auto ? "checked" : ""}> التوزيع التلقائي شغال</label></div>
+      <div class="card-b">
+        <div class="form-row">
+          <label class="field"><span>فترة القياس</span><div class="suffix"><input class="input num" type="number" min="1" max="60" id="aWin" value="${f.alloc.windowDays}"><span>يوم</span></div><span class="hint">بنحسب منها متوسط المكالمات ونسبة الرد لكل موظف.</span></label>
+          <label class="field"><span>الدفعة تكفي</span><div class="suffix"><input class="input num" type="number" min="1" max="10" id="aDays" value="${f.alloc.days}"><span>يوم شغل</span></div></label>
+          <label class="field"><span>أقل محاولات علشان نقيس الموظف</span><div class="suffix"><input class="input num" type="number" min="0" max="1000" id="aHist" value="${f.alloc.minHistory}"><span>محاولة</span></div><span class="hint">أقل من كده في فترة القياس = موظف جديد.</span></label>
+        </div>
+        <div class="form-row">
+          <label class="field"><span>الحد الأدنى للدفعة</span><div class="suffix"><input class="input num" type="number" min="1" max="5000" id="aMin" value="${f.alloc.min}"><span>اسم</span></div></label>
+          <label class="field"><span>الحد الأقصى للدفعة</span><div class="suffix"><input class="input num" type="number" min="1" max="5000" id="aMax" value="${f.alloc.max}"><span>اسم</span></div></label>
+          <label class="field"><span>دفعة الموظف الجديد</span><div class="suffix"><input class="input num" type="number" min="1" max="5000" id="aFresh" value="${f.alloc.fresh}"><span>اسم</span></div></label>
+        </div>
+        <div class="formula"><b>إزاي بنحسب حجم الدفعة</b>
+          <p>حجم الدفعة = (متوسط مكالمات الموظف في اليوم ÷ عدد المحاولات اللي الاسم الواحد بياخدها) × عدد أيام الدفعة، وبعدين بنخليه بين الحد الأدنى والأقصى.</p>
+          <p>عدد المحاولات للاسم = ١ + (١ − نسبة الرد) + (١ − نسبة الرد)² + … لحد عدد مرات «لا يرد». السبب إن اللي مبيردش بيتكلم تاني، فالموظف اللي نسبة الرد عنده قليلة بيصرف مكالمات أكتر على نفس الأسماء ومحتاج أسماء جديدة أقل.</p>
+          <p>متوسط المكالمات في اليوم = محاولات الاتصال في فترة القياس ÷ عدد الأيام اللي اشتغل فيها. نسبة الرد = المحاولات اللي حد رد فيها ÷ كل المحاولات، ومن غير «مكرر».</p></div>
+        <div class="tw card"><table><thead><tr><th>الموظف</th><th class="num">محاولات</th><th class="num">مكالمات/يوم</th><th class="num">نسبة الرد</th><th class="num">محاولات للاسم</th><th>الحساب</th><th class="num">الدفعة</th></tr></thead><tbody id="allocPrev"></tbody></table></div>
+      </div>
       <div class="card-h" style="border-top:1px solid var(--line)"><h2>الفرق والصلاحيات</h2><span class="muted small">التيم ليدر بيشتغل زي الايجنت، وزيادة عليه صفحة تقارير لفريقه بس</span></div>
-      <div class="tw"><table class="sched"><thead><tr><th>الاسم</th><th>الدور</th><th>تابع لـ</th><th>يشوف تقارير</th></tr></thead><tbody>
+      <div class="tw"><table class="sched"><thead><tr><th>الاسم</th><th>الدور</th><th>تابع لـ</th><th>يشوف تقارير</th><th>يستلم دفعات</th></tr></thead><tbody>
         ${S.agents.map((a) => { const L = f.teams.leaders.includes(a.id), mem = S.agents.filter((x) => f.teams.of[x.id] === a.id); return `<tr><td><b>${esc(a.name)}</b></td>
           <td><select class="input" data-role="${a.id}" aria-label="دور ${esc(a.name)}"><option value="agent" ${L ? "" : "selected"}>ايجنت</option><option value="lead" ${L ? "selected" : ""}>تيم ليدر</option></select></td>
           <td>${L ? '<span class="muted small">—</span>' : `<select class="input" data-of="${a.id}" aria-label="التيم ليدر بتاع ${esc(a.name)}"><option value="">بدون تيم ليدر</option>${f.teams.leaders.map((lid) => `<option value="${lid}" ${f.teams.of[a.id] === lid ? "selected" : ""}>${esc(agentName(lid))}</option>`).join("")}</select>`}</td>
-          <td class="small">${L ? (mem.length ? `نفسه + ${mem.map((x) => esc(x.name)).join("، ")}` : '<span style="color:var(--warn)">مفيش ايجنتس تحته لسه</span>') : "نفسه بس"}</td></tr>`; }).join("")}</tbody></table></div>
+          <td class="small">${L ? (mem.length ? `نفسه + ${mem.map((x) => esc(x.name)).join("، ")}` : '<span style="color:var(--warn)">مفيش ايجنتس تحته لسه</span>') : "نفسه بس"}</td>
+          <td><input type="checkbox" data-elig="${a.id}" ${f.alloc.excluded.includes(a.id) ? "" : "checked"} aria-label="${esc(a.name)} يستلم دفعات الداتا الجديدة"></td></tr>`; }).join("")}</tbody></table></div>
       <div class="card-b"><p class="muted small">المدير بيشوف كل حاجة. التيم ليدر بيشوف تقارير نفسه والايجنتس اللي تحته بس، ومش بيشوف ملفات الداتا ولا التوزيع ولا الإعدادات. الايجنت بيشوف شغله بس.</p></div>
       <div class="card-h" style="border-top:1px solid var(--line)"><h2>مواعيد عمل الايجنتس</h2><span class="muted small">علشان نحسب كل واحد اشتغل كام ساعة من يومه</span></div>
       <div class="tw"><table class="sched"><thead><tr><th>الايجنت</th><th>من</th><th>لحد</th><th class="num">ساعات اليوم</th></tr></thead><tbody>
@@ -1251,6 +1510,9 @@ V.settings = () => {
     $$("[data-sch]").forEach((el) => { const id = el.dataset.sch; f.sched[id] = f.sched[id] || { start: 10, end: 18 }; f.sched[id][el.dataset.k] = Number(el.value); });
     Object.entries(f.sched).forEach(([id, sc]) => { const c = $(`[data-hrs="${id}"]`); if (c) c.textContent = n(sc.end - sc.start); });
     f.pause = { break: Number($("#pBreak").value), single: Number($("#pSingle").value) };
+    f.cycle = { noAnsLimit: Number($("#cNoAns").value), holdMonths: Number($("#cHold").value) };
+    f.alloc = { auto: $("#aAuto").checked, windowDays: Number($("#aWin").value), days: Number($("#aDays").value), minHistory: Number($("#aHist").value),
+      min: Number($("#aMin").value), max: Number($("#aMax").value), fresh: Number($("#aFresh").value), excluded: $$("[data-elig]").filter((c) => !c.checked).map((c) => Number(c.dataset.elig)) };
   };
   const problem = () => {
     if (Object.values(f.retry).some((h) => !(Number.isInteger(h) && h >= 1 && h <= 72))) return "ساعات إعادة المحاولة لازم تكون رقم صحيح من ١ لـ ٧٢.";
@@ -1260,6 +1522,12 @@ V.settings = () => {
     const bad = S.agents.find((a) => f.sched[a.id] && f.sched[a.id].end <= f.sched[a.id].start);
     if (bad) return `مواعيد ${bad.name}: النهاية لازم تكون بعد البداية.`;
     if (!(Number.isInteger(f.pause.break) && f.pause.break >= 0 && f.pause.break <= 240) || !(Number.isInteger(f.pause.single) && f.pause.single >= 1 && f.pause.single <= 120)) return "دقايق الوقفات لازم تكون أرقام صحيحة (البريك من ٠ لـ ٢٤٠، والوقفة الواحدة من ١ لـ ١٢٠).";
+    const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+    if (!int(f.cycle.noAnsLimit, 1, 10) || !int(f.cycle.holdMonths, 1, 12)) return "عدد مرات «لا يرد» من ١ لـ ١٠، ومدة التوقف من ١ لـ ١٢ شهر.";
+    const al = f.alloc;
+    if (!int(al.windowDays, 1, 60) || !int(al.days, 1, 10) || !int(al.minHistory, 0, 1000)) return "فترة القياس من ١ لـ ٦٠ يوم، والدفعة تكفي من ١ لـ ١٠ أيام.";
+    if (!int(al.min, 1, 5000) || !int(al.max, 1, 5000) || !int(al.fresh, 1, 5000)) return "أحجام الدفعات لازم تكون أرقام صحيحة من ١ لـ ٥٠٠٠.";
+    if (al.min > al.max) return "الحد الأدنى للدفعة لازم يكون أقل من الأقصى أو يساويه.";
     return "";
   };
   const preview = () => {
@@ -1268,15 +1536,24 @@ V.settings = () => {
     $("#setSave").disabled = !isDirty || !!err; $("#setReset").disabled = !isDirty;
     $(".sticky-f .muted").textContent = isDirty ? "فيه تغييرات لسه متحفظتش" : "";
     if (err) { $("#setPrev").textContent = ""; return; }
+    $("#allocPrev").innerHTML = S.agents.map((a) => {
+      if (f.alloc.excluded.includes(a.id)) return `<tr><td>${esc(a.name)}</td><td colspan="6" class="muted small">مش بيستلم دفعات</td></tr>`;
+      const r = agentRate(a.id, f);
+      return `<tr><td>${esc(a.name)}</td><td class="num">${n(r.attempts)}</td><td class="num">${r.isNew ? "—" : n(Math.round(r.avgDaily * 10) / 10)}</td><td class="num">${r.isNew ? "—" : pctS(Math.round(r.p * 1000) / 10)}</td>
+        <td class="num">${r.isNew ? "—" : n(Math.round(r.per * 100) / 100)}</td>
+        <td class="small">${r.isNew ? `موظف جديد (${n(r.attempts)} محاولة بس) ← الحجم الافتراضي` : `${n(Math.round(r.avgDaily * 10) / 10)} ÷ ${n(Math.round(r.per * 100) / 100)} × ${n(f.alloc.days)} = ${n(Math.round(r.raw))}${r.clamped ? ` ← اتعدّل للحد (${n(r.size)})` : ""}`}</td>
+        <td class="num"><b>${n(r.size)}</b></td></tr>`;
+    }).join("");
     // walk one example donor who never answers, starting at the first working hour
     let t = dayStart(S.now) + f.dayStart * H, tries = 0, today = 0, day = dayStart(t); const steps = [];
-    while (tries < f.maxTries && steps.length < 8) {
+    const stopAt = Math.min(f.maxTries, f.cycle.noAnsLimit);
+    while (tries < stopAt && steps.length < 10) {
       steps.push(t); tries++; today++;
-      if (tries >= f.maxTries) break;
+      if (tries >= stopAt) break;
       t = nextRetry(t, f.retry.no_answer, today, f);
       if (dayStart(t) !== day) { day = dayStart(t); today = 0; }
     }
-    $("#setPrev").innerHTML = `مثال لمتبرع مبيردش خالص («لا يرد»): هيتكلم ${steps.map((x) => `<b>${when(x)}</b>`).join("، ")}${tries >= f.maxTries ? `، وبعدها يتقفل «استنفد المحاولات».` : "…"}`;
+    $("#setPrev").innerHTML = `مثال لمتبرع مبيردش خالص («لا يرد»): هيتكلم ${steps.map((x) => `<b>${when(x)}</b>`).join("، ")}${tries >= stopAt ? (f.cycle.noAnsLimit <= f.maxTries ? `، وبعدها يتوقف ${n(f.cycle.holdMonths)} شهور ويرجع لموظف تاني.` : `، وبعدها يتقفل «استنفد المحاولات».`) : "…"}`;
   };
   $$("[data-role]").forEach((el) => (el.onchange = () => {
     read(); const id = Number(el.dataset.role);
@@ -1289,7 +1566,7 @@ V.settings = () => {
   $("#setForm").onchange = () => { read(); preview(); };
   $("#setForm").onsubmit = (e) => { e.preventDefault(); read(); if (problem()) return preview(); S.settings = JSON.parse(JSON.stringify(f)); S.ui.setDraft = null; toast("اتحفظت الإعدادات"); render(); };
   $("#setReset").onclick = () => { S.ui.setDraft = null; render(); };
-  $("#setDef").onclick = () => { S.ui.setDraft = JSON.parse(JSON.stringify(DEFAULT_SETTINGS)); render(); };
+  $("#setDef").onclick = () => { S.ui.setDraft = { ...JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), teams: f.teams, sched: f.sched, alloc: { ...DEFAULT_SETTINGS.alloc, excluded: f.alloc.excluded } }; render(); };
   preview();
 };
 
@@ -1479,56 +1756,100 @@ V.reports = () => {
 /* ================= agent views ================= */
 /* ---- the agent works one call type at a time and never sees the list ---- */
 const CATS = [
-  { k: "sheet", label: "شغل الشيت", icon: "files", hint: "أسماء الشيتات اللي معاك." },
-  { k: "pledge", label: "تحصيل الوعود", icon: "heart", hint: "ناس وعدت تتبرع ومعادها النهارده أو فات." },
+  { k: "donors", label: "المتبرعين بتوعي", icon: "heart", hint: "المتبرعين الحاليين المسندين ليك." },
+  { k: "fresh", label: "الداتا الجديدة", icon: "files", hint: "متبرعين محتملين من دفعتك." },
+  { k: "pledge", label: "تحصيل الوعود", icon: "share", hint: "ناس وعدت تتبرع ومعادها النهارده أو فات." },
   { k: "callback", label: "معاودة الاتصال", icon: "clock", hint: "ناس طلبت تكلمهم تاني في معاد النهارده." },
 ];
 function catOf(d) {
   if (isClosed(d) || d.dnc) return null;
-  if (d.status === "new") return "sheet";
-  if (d.next !== null && d.next > S.now) return null;            // later — not today's work yet
-  if (d.status === "pledged") return "pledge";
-  if (d.status === "callback") return "callback";
-  if (d.status === "will_call" || d.status === "send_info") return "sheet";
-  if (OC[d.status]?.group === "none" || OC[d.status]?.group === "num") return "sheet";   // retries come back inside the sheet work
-  return null;
+  const due = d.next === null || d.next <= S.now;
+  if (d.status === "pledged") return due ? "pledge" : null;
+  if (d.status === "callback") return due ? "callback" : null;
+  if (!due) return null;                                         // later — not today's work yet
+  return d.kind === "donor" ? "donors" : "fresh";
 }
 function catList(agentId, cat, batchId) {
-  const list = S.donors.filter((d) => d.agent === agentId && catOf(d) === cat && (!batchId || d.batch === batchId));
-  return cat === "sheet" ? list.sort((a, b) => (a.next ?? Infinity) - (b.next ?? Infinity) || a.id - b.id) : list.sort((a, b) => (a.next ?? 0) - (b.next ?? 0) || a.id - b.id);
+  const list = mineOf(agentId).filter((d) => catOf(d) === cat && (!batchId || d.batch === batchId));
+  return cat === "donors" || cat === "fresh" ? list.sort((a, b) => (a.next ?? Infinity) - (b.next ?? Infinity) || a.id - b.id) : list.sort((a, b) => (a.next ?? 0) - (b.next ?? 0) || a.id - b.id);
 }
 const catCount = (agentId, cat) => catList(agentId, cat).length;
 const doneToday = (agentId, cat) => S.calls.filter((c) => c.agent === agentId && c.t >= dayStart(S.now) && c.cat === cat).length;
 
 V.today = () => {
-  const me = agentById(S.role);
+  const me = agentById(S.role), mine = mineOf(me.id);
   const today = stats(periodRange("today"), { agent: me.id });
-  const total = CATS.reduce((s, c) => s + catCount(me.id, c.k), 0);
-  $("#main").innerHTML = `
-    <div class="page-head"><div class="t"><h1>مكالمات النهارده</h1><span class="muted">أهلاً ${esc(me.name.split(" ")[0])} — ${dateS(S.now)}. اختار نوع المكالمات اللي هتشتغل عليه.</span></div></div>
-    <div class="stats">
-      <div class="stat"><span>مكالماتك النهارده</span><b>${n(today.calls)} <span class="muted" style="font-size:14px;font-weight:500">من ${n(me.target)}</span></b><div class="meter" style="margin-top:6px"><i class="${today.calls >= me.target ? "ok" : ""}" style="width:${Math.min(100, (100 * today.calls) / me.target)}%"></i></div></div>
-      <div class="stat"><span>تبرعات النهارده</span><b>${money(today.amount)}</b><small>${n(today.donated)} تبرع</small></div>
-      <div class="stat"><span>وعود النهارده</span><b>${money(today.pledgedAmt)}</b><small>${n(today.pledged)} وعد</small></div>
-      <div class="stat"><span>فاضل عليك النهارده</span><b>${n(total)}</b><small>مكالمة في كل الأنواع</small></div>
-    </div>
-    <div class="tiles">${CATS.map((c) => { const k = catCount(me.id, c.k), done = doneToday(me.id, c.k); return `
+  const myDonors = mine.filter((d) => d.kind === "donor"), myNew = mine.filter((d) => d.kind === "prospect" && !isClosed(d));
+  const cnt = Object.fromEntries(CATS.map((c) => [c.k, catCount(me.id, c.k)]));
+  const newWaiting = myNew.filter((d) => catOf(d) === null && d.next !== null).length;
+  const rate = agentRate(me.id), poolLeft = idx().pool.length, auto = S.settings.alloc.auto && !S.settings.alloc.excluded.includes(me.id);
+  const total = CATS.reduce((s, c) => s + cnt[c.k], 0);
+  const small = (c) => { const k = cnt[c.k], done = doneToday(me.id, c.k); return `
       <button class="tile ${k ? "" : "done"}" type="button" data-cat="${c.k}" ${k ? "" : "disabled"}>
         <span class="tile-h"><span class="tile-ic">${ic(c.icon)}</span><b>${c.label}</b></span>
         <span class="tile-n"><b class="num">${n(k)}</b><span>${k ? "مكالمة مستنياك" : "خلصت"}</span></span>
         <span class="muted small">${c.hint}</span>
         <span class="tile-f"><span class="small muted">اتعمل النهارده: ${n(done)}</span>${k ? `<span class="tile-go">ابدأ ${ic("share")}</span>` : ""}</span>
-      </button>`; }).join("")}</div>`;
+      </button>`; };
+  $("#main").innerHTML = `
+    <div class="page-head"><div class="t"><h1>مكالمات النهارده</h1><span class="muted">أهلاً ${esc(me.name.split(" ")[0])} — ${dateS(S.now)}.</span></div></div>
+    <div class="stats">
+      <div class="stat"><span>مكالماتك النهارده</span><b>${n(today.calls)} <span class="muted" style="font-size:14px;font-weight:500">من ${n(me.target)}</span></b><div class="meter" style="margin-top:6px"><i class="${today.calls >= me.target ? "ok" : ""}" style="width:${Math.min(100, (100 * today.calls) / me.target)}%"></i></div></div>
+      <div class="stat"><span>تبرعات النهارده</span><b>${money(today.amount)}</b><small>${n(today.donated)} تبرع</small></div>
+      <div class="stat"><span>وعود النهارده</span><b>${money(today.pledgedAmt)}</b><small>${n(today.pledged)} وعد</small></div>
+      <div class="stat"><span>فاضل عليك النهارده</span><b>${n(total)}</b><small>مكالمة في كل الأقسام</small></div>
+    </div>
+    <div class="split">
+      <section class="card section-card"><div class="card-h"><h2>${ic("heart")}المتبرعين بتوعي</h2><button class="btn ghost sm" id="seeDonors">عرض المتبرعين</button></div>
+        <div class="card-b"><div class="big-pair"><div><b class="num">${n(myDonors.length)}</b><span>متبرع مسند ليك</span></div><div><b class="num">${n(cnt.donors)}</b><span>جاهز للاتصال دلوقتي</span></div></div>
+          <p class="muted small">أي متبرع محتمل يتبرع معاك بيتنقل هنا ويفضل معاك بسجل مكالماته.</p>
+          <div class="actions"><button class="btn primary" data-cat="donors" ${cnt.donors ? "" : "disabled"}>${cnt.donors ? "ابدأ الاتصال" : "مفيش حد جاهز دلوقتي"}</button></div></div></section>
+      <section class="card section-card"><div class="card-h"><h2>${ic("files")}الداتا الجديدة</h2><span class="muted small">${auto ? `دفعتك حوالي ${n(rate.size)} اسم` : "التوزيع التلقائي مقفول ليك"}</span></div>
+        <div class="card-b"><div class="big-pair"><div><b class="num">${n(cnt.fresh)}</b><span>اسم متاح للعمل</span></div><div><b class="num">${n(newWaiting)}</b><span>مستني معاد متابعة</span></div></div>
+          <p class="muted small">${auto ? (poolLeft ? "أول ما تخلص الأسماء الجاهزة، بتتسندلك دفعة جديدة لوحدها." : "المخزون فاضي دلوقتي. لما المدير يرفع داتا جديدة هتوصلك دفعة لوحدها.") : "المدير هيسندلك الداتا الجديدة بإيده."}</p>
+          <div class="actions"><button class="btn primary" data-cat="fresh" ${cnt.fresh ? "" : "disabled"}>${cnt.fresh ? "ابدأ الداتا الجديدة" : "مفيش أسماء جاهزة"}</button></div></div></section>
+    </div>
+    <div class="tiles">${CATS.filter((c) => c.k === "pledge" || c.k === "callback").map(small).join("")}</div>`;
   $$("[data-cat]").forEach((b) => (b.onclick = () => go("c-" + b.dataset.cat)));
+  $("#seeDonors").onclick = () => go("my-donors");
+};
+
+/* the agent's own donors, page by page */
+V["my-donors"] = () => {
+  const ui = S.ui.myd || (S.ui.myd = { q: "", page: 1 });
+  const all = mineOf(S.role).filter((d) => d.kind === "donor").sort((a, b) => (catOf(a) ? 0 : 1) - (catOf(b) ? 0 : 1) || (b.convertedAt || 0) - (a.convertedAt || 0) || a.id - b.id);
+  $("#main").innerHTML = `
+    <div class="page-head"><div class="t"><span class="crumb"><a href="#" data-back>مكالمات النهارده</a> / المتبرعين بتوعي</span><h1>المتبرعين بتوعي</h1><span class="muted">${n(all.length)} متبرع مسند ليك. اللي جاهز للاتصال دلوقتي فوق.</span></div>
+      <div class="search">${ic("search")}<input class="input" id="mq" placeholder="ابحث بالاسم أو الرقم" value="${esc(ui.q)}" aria-label="ابحث في المتبرعين بتوعي"></div></div>
+    <section class="card" id="mdT"></section>`;
+  const draw = () => {
+    const q = ui.q.trim(), qd = q.replace(/\D/g, "");
+    const list = all.filter((d) => !q || d.name.includes(q) || (qd && d.phones.some((p) => p.n.includes(qd))));
+    const pg = pageSlice(list, ui);
+    $("#mdT").innerHTML = list.length ? `<div class="tw"><table><thead><tr><th>المتبرع</th><th>الرقم</th><th>الحالة</th><th>المتابعة</th><th class="num">إجمالي تبرعه</th><th></th></tr></thead><tbody>
+      ${pg.rows.map((d) => { const c = catOf(d); return `<tr class="link" data-donor="${d.id}"><td><b>${esc(d.name)}</b> ${d.convertedAt ? kindTag(d) : ""}</td>
+        <td><span class="ltr num">${esc(goodPhones(d)[0]?.n || d.phones[0].n)}</span></td><td>${st(d.status)}</td>
+        <td>${d.next ? `<span class="due ${isDue(d) ? "over" : ""}">${when(d.next)}</span>` : '<span class="muted">—</span>'}</td>
+        <td class="num">${d.total ? money(d.total) : '<span class="muted">—</span>'}</td>
+        <td>${c ? `<button class="btn sm primary" data-call="${d.id}" data-c="${c}">${ic("phone")}اتصل</button>` : ""}</td></tr>`; }).join("")}</tbody></table></div>${pagerHtml("mdPg", pg, list.length)}`
+      : empty(q ? "مفيش نتايج" : "مفيش متبرعين مسندين ليك لسه", q ? "جرّب اسم أو رقم تاني." : "المدير بيسندلك المتبرعين، وأي محتمل يتبرع معاك بيظهر هنا.");
+    bindPager("mdPg", ui, draw);
+    $$("tr[data-donor]", $("#mdT")).forEach((tr) => (tr.onclick = (e) => { if (e.target.closest("[data-call]")) return; donorDrawer(Number(tr.dataset.donor), render); }));
+    $$("[data-call]", $("#mdT")).forEach((b) => (b.onclick = () => { S.ui.cur = Number(b.dataset.call); S.ui.form = null; go("c-" + b.dataset.c); }));
+  };
+  $("[data-back]").onclick = (e) => { e.preventDefault(); go("today"); };
+  let t; $("#mq").oninput = (e) => { clearTimeout(t); t = setTimeout(() => { ui.q = e.target.value; ui.page = 1; draw(); }, 200); };
+  draw();
 };
 
 function catView(cat) {
   const me = agentById(S.role), c = CATS.find((x) => x.k === cat);
   const ui = S.ui.cat?.[cat] || ((S.ui.cat = S.ui.cat || {})[cat] = { skip: [], batch: null });
-  const sheets = cat === "sheet" ? S.batches.map((b) => ({ b, k: catList(me.id, "sheet", b.id).length })).filter((x) => x.k) : [];
+  const bySheet = cat === "donors" || cat === "fresh";
+  const sheets = bySheet ? S.batches.map((b) => ({ b, k: catList(me.id, cat, b.id).length })).filter((x) => x.k) : [];
   if (ui.batch && !sheets.some((x) => x.b.id === ui.batch)) ui.batch = null;
   const list = catList(me.id, cat, ui.batch);
-  let cur = S.donors.find((d) => d.id === S.ui.cur && list.includes(d));
+  let cur = list.find((d) => d.id === S.ui.cur);
   if (!cur) {
     cur = list.find((d) => !ui.skip.includes(d.id)) || null;
     if (!cur && list.length) { ui.skip = []; cur = list[0]; }
@@ -1538,9 +1859,9 @@ function catView(cat) {
   $("#main").innerHTML = `
     <div class="page-head"><div class="t"><span class="crumb"><a href="#" data-back>مكالمات النهارده</a> / ${c.label}</span><h1>${c.label}</h1><span class="muted">${c.hint}</span></div>
       <div class="actions"><span class="pill">فاضل <b class="num">${n(list.length)}</b></span><span class="pill">اتعمل النهارده <b class="num">${n(done)}</b></span></div></div>
-    ${sheets.length > 1 ? `<div class="field"><span>من أنهي شيت؟</span>${segHtml("shSeg", [["", `كل الشيتات (${n(catCount(me.id, "sheet"))})`], ...sheets.map((x) => [String(x.b.id), `${x.b.name} (${n(x.k)})`])], ui.batch ? String(ui.batch) : "")}</div>` : ""}
+    ${sheets.length > 1 ? `<div class="field"><span>من أنهي شيت؟</span>${segHtml("shSeg", [["", `كل الشيتات (${n(catCount(me.id, cat))})`], ...sheets.map((x) => [String(x.b.id), `${x.b.name} (${n(x.k)})`])], ui.batch ? String(ui.batch) : "")}</div>` : ""}
     ${cur ? `<section class="card call-solo" id="callCard"></section>`
-      : `<section class="card">${empty(`خلصت ${c.label}`, "مفيش مكالمات من النوع ده دلوقتي. ارجع لمكالمات النهارده واختار نوع تاني.", `<button class="btn primary" data-back2>مكالمات النهارده</button>`)}</section>`}`;
+      : `<section class="card">${empty(`خلصت ${c.label}`, cat === "fresh" && S.settings.alloc.auto ? (idx().pool.length ? "الدفعة الجاية بتتسندلك دلوقتي." : "المخزون فاضي دلوقتي. لما المدير يرفع داتا جديدة هتوصلك دفعة لوحدها.") : "مفيش مكالمات من النوع ده دلوقتي. ارجع لمكالمات النهارده واختار قسم تاني.", `<button class="btn primary" data-back2>مكالمات النهارده</button>`)}</section>`}`;
   $("[data-back]").onclick = (e) => { e.preventDefault(); go("today"); };
   const b2 = $("[data-back2]"); if (b2) b2.onclick = () => go("today");
   bindSeg("shSeg", (v) => { ui.batch = v ? Number(v) : null; S.ui.cur = null; render(); });
@@ -1585,9 +1906,12 @@ function callCard(d, cat, left) {
       <div class="chips" role="group">${followOpts.map(([k, l]) => `<button type="button" class="chip-btn" data-fu="${k}" aria-pressed="${f.follow === k}">${k === "pick" ? ic("cal") : ""}${l}</button>`).join("")}</div>
       ${isPledge && f.follow === "pick" ? `<input class="input" type="date" id="pickDay" min="${isoDay(S.now + D)}" max="${isoDay(S.now + 120 * D)}" value="${esc(f.pickDate || "")}" aria-label="يوم التحصيل" style="max-width:200px">` : ""}
       ${isPledge && f.follow && followAt(f.follow) ? `<span class="small">معاد التحصيل: <b>${new Date(followAt(f.follow)).toLocaleDateString("ar-EG", { weekday: "long", day: "numeric", month: "long" })}</b></span>` : ""}
-      <span class="hint" id="fuErr" role="alert">${o.group === "none" ? `لو مختارتش، هيرجعلك في «شغل الشيت» ${when(nextRetry(S.now, S.settings.retry[o.code], S.calls.filter((c) => c.donor === d.id && c.t >= dayStart(S.now) && OC[c.outcome].group === "none").length + 1))}. بعد ${n(S.settings.maxTries)} مرات ورا بعض من غير رد بيتقفل.` : ""}</span></div>` : ""}
-    ${o.group === "num" ? `<p class="note warn">الرقم ده هيتعلّم إنه غير صالح.${goodPhones(d).length > 1 ? " المتبرع هيرجعلك في «شغل الشيت» على رقمه التاني." : " ده آخر رقم صالح، فالمتبرع هيتقفل."}</p>` : ""}
-    ${o.code === "donated" && d.kind === "prospect" ? `<p class="note">ده متبرع محتمل. بعد الحفظ هيتنقل لقاعدة المتبرعين.</p>` : ""}` : ""}
+      <span class="hint" id="fuErr" role="alert">${o.group === "none" ? `لو مختارتش، هيرجعلك ${when(nextRetry(S.now, S.settings.retry[o.code], S.calls.filter((c) => c.donor === d.id && c.t >= dayStart(S.now) && OC[c.outcome].group === "none").length + 1))}. ${o.code === "no_answer" ? "" : `بعد ${n(S.settings.maxTries)} مرات ورا بعض من غير رد بيتقفل.`}` : ""}</span></div>` : ""}
+    ${o.group === "num" ? `<p class="note warn">الرقم ده هيتعلّم إنه غير صالح.${goodPhones(d).length > 1 ? " المتبرع هيرجعلك على رقمه التاني." : " ده آخر رقم صالح، فالمتبرع هيتقفل."}</p>` : ""}
+    ${o.code === "donated" && d.kind === "prospect" ? `<p class="note">ده متبرع محتمل. بعد الحفظ هيتنقل لـ«المتبرعين بتوعي» ويفضل معاك بسجل مكالماته.</p>` : ""}
+    ${o.code === "no_answer" ? `<p class="note ${(d.noAns || 0) + 1 >= S.settings.cycle.noAnsLimit ? "warn" : ""}">دي «لا يرد» رقم ${n((d.noAns || 0) + 1)} من ${n(S.settings.cycle.noAnsLimit)}.${(d.noAns || 0) + 1 >= S.settings.cycle.noAnsLimit ? ` الاسم هيتوقف ${n(S.settings.cycle.holdMonths)} شهور ويرجع بعدها لموظف تاني.` : ""}</p>` : ""}
+    ${o.code === "not_interested" ? `<p class="note warn">الاسم هيخرج من شغلك ويتوقف ${n(S.settings.cycle.holdMonths)} شهور، وبعدها يرجع للتوزيع على موظف تاني.</p>` : ""}
+    ${o.code === "do_not_call" ? `<p class="note warn">الاسم هيتقفل نهائيًا ومش هيتوزع على حد تاني أبدًا.</p>` : ""}` : ""}
     <label class="field"><span>ملاحظات</span><textarea class="input" id="notes" rows="2" placeholder="مثال: بيفضّل الاتصال بعد المغرب">${esc(f.notes)}</textarea></label>
     ${d.attempts ? `<details><summary class="small" style="cursor:pointer">سجل مكالماته (${n(S.calls.filter((c) => c.donor === d.id).length)})</summary><div style="margin-top:8px">${timeline(d)}</div></details>` : ""}
   </div>
@@ -1614,7 +1938,8 @@ function callCard(d, cat, left) {
     const conv = logCall(d, S.role, { outcome: o.code, phone: f.phone, amount: o.amount ? Number(f.amount) : null, pay: o.code === "donated" ? f.pay : null, follow: f.follow ? followAt(f.follow) : null, notes: f.notes });
     S.calls[S.calls.length - 1].cat = cat;
     S.now += 3 * MIN;
-    toast(conv ? `${d.name} اتبرع واتنقل لقاعدة المتبرعين` : `اتسجل: ${o.label}`);
+    const held = d.status === "hold";
+    toast(conv ? `${d.name} اتبرع واتنقل لـ«المتبرعين بتوعي»` : held ? `اتسجل: ${o.label} — الاسم اتوقف لحد ${dateS(d.holdUntil)}` : `اتسجل: ${o.label}`);
     S.ui.form = null; S.ui.cur = null;
     render(); window.scrollTo(0, 0);
   };
@@ -1644,6 +1969,8 @@ V.mine = () => {
 $("#asRole").onchange = (e) => { S.role = e.target.value === "manager" ? "manager" : Number(e.target.value); S.ui.cur = null; S.ui.form = null; go(S.role === "manager" ? "home" : "today"); };
 $("#plus15").onclick = () => { S.now += 15 * MIN; render(); };
 $("#plusH").onclick = () => { S.now += H; render(); };
+$("#plusW").onclick = () => { S.now = dayStart(S.now) + 7 * D + 10 * H; toast("اتقدّم الوقت أسبوع"); render(); };
+$("#plusM").onclick = () => { S.now = addMonths(dayStart(S.now), 1) + 10 * H; toast("اتقدّم الوقت شهر"); render(); };
 $("#plusD").onclick = () => { S.now = dayStart(S.now) + D + 10 * H; toast("بدأ يوم شغل جديد — الساعة ١٠ الصبح"); render(); };
 $("#simDay").onclick = () => { const k = simulate(.8); toast(`الفريق عمل ${n(k)} مكالمة`); render(); };
 $("#resetBtn").onclick = () => confirmDlg({ title: "إعادة البيانات التجريبية؟", body: "أي داتا رفعتها أو مكالمات سجلتها في التجربة دي هتتمسح.", action: "إعادة البيانات", danger: true, onOk: () => { seed(); render(); toast("رجعت البيانات التجريبية"); } });
@@ -1651,6 +1978,7 @@ $("#resetBtn").onclick = () => confirmDlg({ title: "إعادة البيانات 
 seed(); render();
 /* the simulated clock also runs in real time; only live counters update, the page is not redrawn */
 setInterval(() => {
+  if (!S) return;
   S.now += 1000;
   $$("[data-since]").forEach((el) => (el.textContent = dur(S.now - Number(el.dataset.since))));
   if (Math.floor(S.now / 1000) % 30 === 0) {
